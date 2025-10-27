@@ -135,8 +135,8 @@ class CacheManager:
                 longitude REAL NOT NULL,
                 precision_level INTEGER NOT NULL,
                 location_name TEXT,
-                city TEXT,
-                country TEXT,
+                location_city TEXT,
+                location_country TEXT,
                 cached_at INTEGER NOT NULL,
                 UNIQUE(latitude, longitude, precision_level)
             )
@@ -286,6 +286,115 @@ class CacheManager:
             row = await cursor.fetchone()
             return row[0] if row else 0
     
+    async def add_exif_data(self, file_id: int, exif_data: Dict[str, Any]) -> None:
+        """Add or update EXIF data for a file.
+        
+        Args:
+            file_id: ID of the file in media_files table
+            exif_data: Dictionary with EXIF metadata
+        """
+        await self._db.execute("""
+            INSERT OR REPLACE INTO exif_data 
+            (file_id, camera_make, camera_model, date_taken, latitude, longitude,
+             location_name, location_city, location_country,
+             iso, aperture, shutter_speed, focal_length, flash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            file_id,
+            exif_data.get('camera_make'),
+            exif_data.get('camera_model'),
+            exif_data.get('date_taken'),
+            exif_data.get('latitude'),
+            exif_data.get('longitude'),
+            None,  # location_name (will be filled by geocoding)
+            None,  # location_city (will be filled by geocoding)
+            None,  # location_country (will be filled by geocoding)
+            exif_data.get('iso'),
+            exif_data.get('aperture'),
+            exif_data.get('shutter_speed'),
+            exif_data.get('focal_length'),
+            exif_data.get('flash'),
+        ))
+        
+        await self._db.commit()
+    
+    async def get_geocode_cache(self, latitude: float, longitude: float) -> Optional[Dict[str, str]]:
+        """Get cached geocoding data for coordinates.
+        
+        Args:
+            latitude: Latitude rounded to 3 decimals
+            longitude: Longitude rounded to 3 decimals
+            
+        Returns:
+            Dictionary with location data or None if not cached
+        """
+        async with self._db.execute("""
+            SELECT location_name, location_city, location_country
+            FROM geocode_cache
+            WHERE latitude = ? AND longitude = ? AND precision_level = ?
+        """, (round(latitude, 3), round(longitude, 3), 3)) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    'location_name': row[0],
+                    'location_city': row[1],
+                    'location_country': row[2]
+                }
+            return None
+    
+    async def add_geocode_cache(
+        self, 
+        latitude: float, 
+        longitude: float,
+        location_data: Dict[str, str]
+    ) -> None:
+        """Cache geocoding data for coordinates.
+        
+        Args:
+            latitude: Latitude in decimal degrees
+            longitude: Longitude in decimal degrees
+            location_data: Dictionary with location_name, location_city, location_country
+        """
+        await self._db.execute("""
+            INSERT OR REPLACE INTO geocode_cache
+            (latitude, longitude, precision_level, location_name, location_city, location_country, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            round(latitude, 3),
+            round(longitude, 3),
+            3,  # precision level (3 decimal places)
+            location_data.get('location_name', ''),
+            location_data.get('location_city', ''),
+            location_data.get('location_country', ''),
+            int(datetime.now().timestamp())
+        ))
+        
+        await self._db.commit()
+    
+    async def update_exif_location(
+        self,
+        file_id: int,
+        location_data: Dict[str, str]
+    ) -> None:
+        """Update location fields in EXIF data.
+        
+        Args:
+            file_id: ID of the file
+            location_data: Dictionary with location_name, location_city, location_country
+        """
+        await self._db.execute("""
+            UPDATE exif_data
+            SET location_name = ?, location_city = ?, location_country = ?
+            WHERE file_id = ?
+        """, (
+            location_data.get('location_name', ''),
+            location_data.get('location_city', ''),
+            location_data.get('location_country', ''),
+            file_id
+        ))
+        
+        await self._db.commit()
+    
     async def remove_file(self, file_path: str) -> bool:
         """Remove a file from the cache.
         
@@ -355,6 +464,88 @@ class CacheManager:
         ))
         
         await self._db.commit()
+    
+    async def get_random_files(
+        self,
+        count: int = 10,
+        folder: str | None = None,
+        file_type: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None
+    ) -> list[dict]:
+        """Get random media files with optional filters.
+        
+        Args:
+            count: Number of random files to return
+            folder: Filter by folder path (supports wildcards with %)
+            file_type: Filter by file type ('image' or 'video')
+            date_from: Filter by date >= this value (YYYY-MM-DD)
+            date_to: Filter by date <= this value (YYYY-MM-DD)
+            
+        Returns:
+            List of file records with metadata
+        """
+        query = "SELECT * FROM media_files WHERE 1=1"
+        params = []
+        
+        if folder:
+            query += " AND folder LIKE ?"
+            params.append(f"{folder}%")
+        
+        if file_type:
+            query += " AND file_type = ?"
+            params.append(file_type.lower())
+        
+        if date_from:
+            query += " AND DATE(modified_time, 'unixepoch') >= ?"
+            params.append(str(date_from))
+        
+        if date_to:
+            query += " AND DATE(modified_time, 'unixepoch') <= ?"
+            params.append(str(date_to))
+        
+        query += " ORDER BY RANDOM() LIMIT ?"
+        params.append(int(count))
+        
+        _LOGGER.debug("Query: %s with params: %s", query, params)
+        
+        async with self._db.execute(query, tuple(params)) as cursor:
+            rows = await cursor.fetchall()
+        
+        return [dict(row) for row in rows]
+    
+    async def get_file_by_path(self, file_path: str) -> dict | None:
+        """Get file metadata by full path.
+        
+        Args:
+            file_path: Full path to the file
+            
+        Returns:
+            File record with metadata, or None if not found
+        """
+        async with self._db.execute(
+            "SELECT * FROM media_files WHERE path = ?",
+            (file_path,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        # Get base file data
+        file_data = dict(row)
+        
+        # Get EXIF data if available
+        async with self._db.execute(
+            "SELECT * FROM exif_data WHERE file_path = ?",
+            (file_path,)
+        ) as cursor:
+            exif_row = await cursor.fetchone()
+        
+        if exif_row:
+            file_data['exif'] = dict(exif_row)
+        
+        return file_data
     
     async def close(self) -> None:
         """Close database connection."""

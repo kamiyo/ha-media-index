@@ -8,6 +8,8 @@ from typing import Optional
 from homeassistant.core import HomeAssistant
 
 from .cache_manager import CacheManager
+from .exif_parser import ExifParser
+from .geocoding import GeocodeService
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,12 +20,20 @@ VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.mpg', '.m
 class MediaScanner:
     """Scanner for media files."""
     
-    def __init__(self, cache_manager: CacheManager, hass: HomeAssistant = None):
+    def __init__(
+        self, 
+        cache_manager: CacheManager, 
+        hass: HomeAssistant = None,
+        geocode_service: Optional[GeocodeService] = None,
+        enable_geocoding: bool = False
+    ):
         """Initialize the scanner."""
         self.cache = cache_manager
         self.hass = hass
+        self.geocode_service = geocode_service
+        self.enable_geocoding = enable_geocoding
         self._is_scanning = False
-        _LOGGER.info("MediaScanner initialized")
+        _LOGGER.info("MediaScanner initialized (geocoding: %s)", enable_geocoding)
     
     @property
     def is_scanning(self) -> bool:
@@ -58,10 +68,10 @@ class MediaScanner:
                 "filename": path_obj.name,
                 "folder": str(path_obj.parent),
                 "file_type": self._get_file_type(file_path),
-                "size": stat.st_size,
-                "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "accessed": datetime.fromtimestamp(stat.st_atime).isoformat(),
+                "file_size": stat.st_size,
+                "created_time": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                "modified_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "accessed_time": datetime.fromtimestamp(stat.st_atime).isoformat(),
             }
         except Exception as err:
             _LOGGER.warning("Failed to get metadata for %s: %s", file_path, err)
@@ -124,7 +134,7 @@ class MediaScanner:
             _LOGGER.info("Starting full scan of %s", base_folder)
             
             # Record scan start
-            scan_id = await self.cache.record_scan(base_folder, watched_folders or [])
+            scan_id = await self.cache.record_scan(base_folder, "full")
             
             # Determine paths to scan
             scan_paths = []
@@ -159,8 +169,63 @@ class MediaScanner:
                 # Add files to cache
                 for metadata in media_files:
                     try:
-                        await self.cache.add_file(metadata)
+                        file_id = await self.cache.add_file(metadata)
                         files_added += 1
+                        
+                        # Extract and store EXIF data for images
+                        if metadata['file_type'] == 'image' and file_id > 0:
+                            exif_data = ExifParser.extract_exif(metadata['path'])
+                            if exif_data:
+                                await self.cache.add_exif_data(file_id, exif_data)
+                                _LOGGER.debug("Extracted EXIF for: %s", metadata['filename'])
+                                
+                                # Geocode GPS coordinates if available and enabled
+                                has_coords = exif_data.get('latitude') and exif_data.get('longitude')
+                                _LOGGER.debug(
+                                    "Geocoding check for %s: enabled=%s, service=%s, has_coords=%s (lat=%s, lon=%s)",
+                                    metadata['filename'],
+                                    self.enable_geocoding,
+                                    self.geocode_service is not None,
+                                    has_coords,
+                                    exif_data.get('latitude'),
+                                    exif_data.get('longitude')
+                                )
+                                
+                                if (self.enable_geocoding and 
+                                    self.geocode_service and 
+                                    has_coords):
+                                    
+                                    lat = exif_data['latitude']
+                                    lon = exif_data['longitude']
+                                    
+                                    _LOGGER.info("Starting geocode for %s at (%s, %s)", metadata['filename'], lat, lon)
+                                    
+                                    # Check geocode cache first
+                                    cached_location = await self.cache.get_geocode_cache(lat, lon)
+                                    
+                                    if cached_location:
+                                        # Use cached location
+                                        await self.cache.update_exif_location(file_id, cached_location)
+                                        _LOGGER.debug(
+                                            "Used cached geocode for (%s, %s): %s", 
+                                            lat, lon, cached_location.get('location_name')
+                                        )
+                                    else:
+                                        # Fetch from geocoding service
+                                        location_data = await self.geocode_service.reverse_geocode(lat, lon)
+                                        
+                                        if location_data:
+                                            # Cache the result
+                                            await self.cache.add_geocode_cache(lat, lon, location_data)
+                                            # Update EXIF record
+                                            await self.cache.update_exif_location(file_id, location_data)
+                                            _LOGGER.info(
+                                                "Geocoded (%s, %s) to: %s, %s, %s",
+                                                lat, lon,
+                                                location_data.get('location_name'),
+                                                location_data.get('location_city'),
+                                                location_data.get('location_country')
+                                            )
                         
                         if files_added % 100 == 0:
                             _LOGGER.debug("Indexed %d files so far...", files_added)

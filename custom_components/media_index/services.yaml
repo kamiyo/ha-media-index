@@ -1,0 +1,72 @@
+# Media Index Services
+
+get_random_items:
+  name: Get Random Media Items
+  description: Get random media items from the index with optional filtering
+  fields:
+    count:
+      name: Count
+      description: Number of random items to return
+      example: 10
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    folder:
+      name: Folder
+      description: Optional folder path to filter by (relative to base folder)
+      example: "Photos/2023"
+      selector:
+        text:
+    file_type:
+      name: File Type
+      description: Filter by file type (image or video)
+      example: "image"
+      selector:
+        select:
+          options:
+            - "image"
+            - "video"
+    date_from:
+      name: Date From
+      description: Filter files modified after this date (YYYY-MM-DD)
+      example: "2023-01-01"
+      selector:
+        date:
+    date_to:
+      name: Date To
+      description: Filter files modified before this date (YYYY-MM-DD)
+      example: "2023-12-31"
+      selector:
+        date:
+
+get_file_metadata:
+  name: Get File Metadata
+  description: Get detailed metadata for a specific file
+  fields:
+    file_path:
+      name: File Path
+      description: Full path to the media file
+      required: true
+      example: "/media/Photos/vacation.jpg"
+      selector:
+        text:
+
+scan_folder:
+  name: Scan Folder
+  description: Manually trigger a folder scan
+  fields:
+    folder_path:
+      name: Folder Path
+      description: Folder to scan (defaults to base folder if not specified)
+      example: "/media/Photos"
+      selector:
+        text:
+    force_rescan:
+      name: Force Rescan
+      description: Force re-scan of all files even if unchanged
+      default: false
+      selector:
+        boolean:

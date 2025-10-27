@@ -15,6 +15,7 @@ CONF_MAX_STARTUP_TIME: Final = "max_startup_time"
 CONF_CONCURRENT_SCANS: Final = "concurrent_scans"
 CONF_BATCH_SIZE: Final = "batch_size"
 CONF_CACHE_MAX_AGE: Final = "cache_max_age_days"
+CONF_ENABLE_WATCHER: Final = "enable_watcher"
 
 # Defaults
 DEFAULT_BASE_FOLDER: Final = "/media"
@@ -27,6 +28,7 @@ DEFAULT_MAX_STARTUP_TIME: Final = 30
 DEFAULT_CONCURRENT_SCANS: Final = 3
 DEFAULT_BATCH_SIZE: Final = 100
 DEFAULT_CACHE_MAX_AGE: Final = 90
+DEFAULT_ENABLE_WATCHER: Final = True
 
 # Scan schedule options
 SCAN_SCHEDULE_STARTUP_ONLY: Final = "startup_only"
@@ -70,6 +72,13 @@ ATTR_TOTAL_IMAGES: Final = "total_images"
 ATTR_TOTAL_VIDEOS: Final = "total_videos"
 ATTR_WATCHED_FOLDERS: Final = "watched_folders"
 ATTR_CACHE_SIZE_MB: Final = "cache_size_mb"
+ATTR_GEOCODE_ENABLED: Final = "geocode_enabled"
 ATTR_GEOCODE_CACHE_ENTRIES: Final = "geocode_cache_entries"
 ATTR_GEOCODE_HIT_RATE: Final = "geocode_cache_hit_rate"
 ATTR_FILES_WITH_LOCATION: Final = "files_with_location"
+ATTR_GEOCODE_ATTRIBUTION: Final = "geocode_attribution"
+
+# Geocoding attribution (required by Nominatim usage policy)
+# See: https://operations.osmfoundation.org/policies/nominatim/
+GEOCODE_ATTRIBUTION: Final = "Location data © OpenStreetMap contributors, ODbL 1.0. https://osm.org/copyright"
+
