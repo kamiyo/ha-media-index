@@ -83,8 +83,8 @@ class MediaScanner:
         
         try:
             for root, dirs, files in os.walk(scan_path):
-                # Skip _Junk folder (where deleted files are moved)
-                dirs[:] = [d for d in dirs if d != '_Junk']
+                # Skip special folders (where deleted/edit files are moved)
+                dirs[:] = [d for d in dirs if d not in ('_Junk', '_Edit')]
                 
                 # Check depth limit
                 if max_depth is not None:

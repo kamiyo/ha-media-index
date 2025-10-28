@@ -24,6 +24,7 @@ from .const import (
     SERVICE_GET_FILE_METADATA,
     SERVICE_GEOCODE_FILE,
     SERVICE_SCAN_FOLDER,
+    SERVICE_MARK_FOR_EDIT,
 )
 from .cache_manager import CacheManager
 from .scanner import MediaScanner
@@ -65,6 +66,10 @@ SERVICE_MARK_FAVORITE_SCHEMA = vol.Schema({
 })
 
 SERVICE_DELETE_MEDIA_SCHEMA = vol.Schema({
+    vol.Required("file_path"): cv.string,
+})
+
+SERVICE_MARK_FOR_EDIT_SCHEMA = vol.Schema({
     vol.Required("file_path"): cv.string,
 })
 
@@ -330,6 +335,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "error": str(e)
             }
     
+    async def handle_mark_for_edit(call):
+        """Handle mark_for_edit service call."""
+        import shutil
+        
+        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry.entry_id]["config"]
+        
+        file_path = call.data["file_path"]
+        base_folder = config.get(CONF_BASE_FOLDER, "/media")
+        
+        _LOGGER.info("Marking file for editing: %s", file_path)
+        
+        try:
+            # Create edit folder if it doesn't exist
+            edit_folder = Path(base_folder) / "_Edit"
+            edit_folder.mkdir(exist_ok=True)
+            
+            # Get file name and create destination path
+            file_name = Path(file_path).name
+            dest_path = edit_folder / file_name
+            
+            # Handle duplicate names by appending number
+            counter = 1
+            while dest_path.exists():
+                stem = Path(file_path).stem
+                suffix = Path(file_path).suffix
+                dest_path = edit_folder / f"{stem}_{counter}{suffix}"
+                counter += 1
+            
+            # Move file to edit folder
+            await hass.async_add_executor_job(
+                shutil.move,
+                file_path,
+                str(dest_path)
+            )
+            
+            # Remove from database (will be re-added on next scan if moved back)
+            await cache_manager.delete_file(file_path)
+            
+            _LOGGER.info("Moved file to edit folder: %s -> %s", file_path, dest_path)
+            
+            return {
+                "file_path": file_path,
+                "edit_path": str(dest_path),
+                "status": "success"
+            }
+        except Exception as e:
+            _LOGGER.error("Error marking file for edit: %s", e)
+            return {
+                "file_path": file_path,
+                "status": "error",
+                "error": str(e)
+            }
+    
     async def handle_scan_folder(call):
         """Handle scan_folder service call."""
         scanner = hass.data[DOMAIN][entry.entry_id]["scanner"]
@@ -398,7 +457,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         supports_response=SupportsResponse.ONLY,
     )
     
-    _LOGGER.info("Registered 6 services")
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_MARK_FOR_EDIT,
+        handle_mark_for_edit,
+        schema=SERVICE_MARK_FOR_EDIT_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    
+    _LOGGER.info("Registered 7 services")
 
     # Register update listener for config changes
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))

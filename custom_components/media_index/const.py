@@ -65,6 +65,7 @@ SERVICE_FAVORITE_FILE: Final = "favorite_file"
 SERVICE_RATE_FILE: Final = "rate_file"
 SERVICE_DELETE_FILE: Final = "delete_file"
 SERVICE_MOVE_FILE: Final = "move_file"
+SERVICE_MARK_FOR_EDIT: Final = "mark_for_edit"
 
 # Attributes
 ATTR_SCAN_STATUS: Final = "scan_status"
