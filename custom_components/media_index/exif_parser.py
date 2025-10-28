@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 
 from PIL import Image
 from PIL.ExifTags import TAGS, GPSTAGS
+import piexif
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -163,6 +164,7 @@ class ExifParser:
                     'shutter_speed': None,
                     'focal_length': None,
                     'flash': None,
+                    'rating': None,
                 }
                 
                 # Parse date taken
@@ -204,6 +206,13 @@ class ExifParser:
                     # Flash value is a bitmask; bit 0 indicates if flash fired
                     result['flash'] = 'Yes' if (flash_value & 1) else 'No'
                 
+                # Parse XMP:Rating (stored in EXIF Rating tag or XMP metadata)
+                # Check standard Rating tag first (tag 0x4746)
+                if 'Rating' in exif:
+                    rating = exif['Rating']
+                    if isinstance(rating, int) and 0 <= rating <= 5:
+                        result['rating'] = rating
+                
                 _LOGGER.debug("Extracted EXIF from %s: date_taken=%s, GPS=(%s, %s)", 
                             path.name, result['date_taken'], result['latitude'], result['longitude'])
                 
@@ -212,3 +221,48 @@ class ExifParser:
         except Exception as err:
             _LOGGER.warning("Failed to extract EXIF from %s: %s", file_path, err)
             return None
+
+    @staticmethod
+    def write_rating(file_path: str, rating: int) -> bool:
+        """Write XMP:Rating metadata to an image file.
+        
+        Args:
+            file_path: Full path to the image file
+            rating: Rating value (0-5, where 0 means no rating/unfavorited)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Only process JPEG files (piexif supports JPEG only)
+            path = Path(file_path)
+            if path.suffix.lower() not in {'.jpg', '.jpeg'}:
+                _LOGGER.debug("Skipping rating write for non-JPEG file: %s", file_path)
+                return False
+            
+            # Validate rating value
+            if not isinstance(rating, int) or rating < 0 or rating > 5:
+                _LOGGER.warning("Invalid rating value %s, must be 0-5", rating)
+                return False
+            
+            # Load existing EXIF data
+            try:
+                exif_dict = piexif.load(file_path)
+            except Exception:
+                # If no EXIF exists, create a new structure
+                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
+            
+            # Set Rating tag (0x4746 in IFD0)
+            # Rating value: 0-5 where 0=no rating, 5=5 stars
+            exif_dict["0th"][piexif.ImageIFD.Rating] = rating
+            
+            # Convert to bytes and write back to file
+            exif_bytes = piexif.dump(exif_dict)
+            piexif.insert(exif_bytes, file_path)
+            
+            _LOGGER.debug("Wrote rating %d to %s", rating, path.name)
+            return True
+            
+        except Exception as err:
+            _LOGGER.warning("Failed to write rating to %s: %s", file_path, err)
+            return False

@@ -28,6 +28,7 @@ from .const import (
 from .cache_manager import CacheManager
 from .scanner import MediaScanner
 from .watcher import MediaWatcher
+from .exif_parser import ExifParser
 from .geocoding import GeocodeService
 
 _LOGGER = logging.getLogger(__name__)
@@ -249,12 +250,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Update database
             await cache_manager.update_favorite(file_path, is_favorite)
             
-            # TODO: Update EXIF metadata in file (future enhancement)
-            # For now, just update database
+            # Write XMP:Rating to EXIF metadata
+            # Rating 5 = favorite, Rating 0 = unfavorited
+            rating = 5 if is_favorite else 0
+            success = await hass.async_add_executor_job(
+                ExifParser.write_rating, file_path, rating
+            )
+            
+            if success:
+                _LOGGER.debug("Wrote XMP:Rating=%d to %s", rating, file_path)
+            else:
+                _LOGGER.warning("Failed to write XMP:Rating to %s (database updated)", file_path)
             
             return {
                 "file_path": file_path,
                 "is_favorite": is_favorite,
+                "exif_updated": success,
                 "status": "success"
             }
         except Exception as e:

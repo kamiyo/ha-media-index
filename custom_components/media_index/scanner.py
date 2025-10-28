@@ -175,6 +175,12 @@ class MediaScanner:
                                 await self.cache.add_exif_data(file_id, exif_data)
                                 _LOGGER.debug("Extracted EXIF for: %s", metadata['filename'])
                                 
+                                # Set is_favorited based on XMP:Rating (5 stars = favorite)
+                                rating = exif_data.get('rating', 0)
+                                if rating >= 5:
+                                    await self.cache.update_favorite(metadata['path'], True)
+                                    _LOGGER.debug("Marked %s as favorite (rating=%d)", metadata['filename'], rating)
+                                
                                 # Geocode GPS coordinates if available, enabled, and not already geocoded
                                 has_coords = exif_data.get('latitude') and exif_data.get('longitude')
                                 
