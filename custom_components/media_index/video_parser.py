@@ -152,10 +152,18 @@ class VideoMetadataParser:
         except (ValueError, IndexError) as e:
             _LOGGER.debug(f"Failed to parse ISO 6709 location '{iso6709_str}': {e}")
             return None
-    
     @staticmethod
     def write_rating(file_path: str, rating: int) -> bool:
         """Write rating to video file metadata.
+        
+        MP4 Rating Storage for Windows Compatibility:
+        - Windows Explorer reads Microsoft-specific tags, NOT standard iTunes tags
+        - We need to write BOTH for maximum compatibility:
+          1. Microsoft:Rating for Windows Properties display
+          2. iTunes rating for macOS/iTunes compatibility
+        
+        Since mutagen doesn't support Microsoft tags directly, we use exiftool
+        which is the standard for cross-platform metadata writing.
         
         Args:
             file_path: Path to the video file
@@ -164,44 +172,47 @@ class VideoMetadataParser:
         Returns:
             True if rating was written successfully, False otherwise
         """
-        if MP4 is None:
-            _LOGGER.warning("mutagen not available, cannot write video metadata")
-            return False
-            
+        import subprocess
+        
         try:
+            from pathlib import Path
+            
             path = Path(file_path)
             if path.suffix.lower() not in {'.mp4', '.m4v', '.mov'}:
                 return False
             
-            video = MP4(file_path)
-            
-            # Convert 0-5 star rating to iTunes 0-100 scale
-            # iTunes uses 0, 20, 40, 60, 80, 100 for 0-5 stars
-            itunes_rating = rating * 20
-            
-            # Method 1: Try setting rate tag as bytes (iTunes rating format)
-            # The 'rate' tag expects specific bytes format
+            # Check if exiftool is available
             try:
-                # iTunes rating is stored as: [0x00, rating_value, 0x00, 0x00]
-                rating_bytes = bytes([0x00, itunes_rating, 0x00, 0x00])
-                video['rate'] = [rating_bytes]
-                video.save()
-                _LOGGER.info(f"Successfully wrote rating {rating} stars ({itunes_rating}/100) to {file_path}")
-                return True
-            except Exception as method1_error:
-                _LOGGER.debug(f"Method 1 (rate tag) failed: {method1_error}")
-                
-                # Method 2: Try custom iTunes tag as fallback
-                try:
-                    # Store as custom iTunes tag (plain text)
-                    video['----:com.apple.iTunes:rating'] = str(rating).encode('utf-8')
-                    video.save()
-                    _LOGGER.info(f"Successfully wrote custom rating {rating} to {file_path}")
-                    return True
-                except Exception as method2_error:
-                    _LOGGER.error(f"Both rating write methods failed for {file_path}: method1={method1_error}, method2={method2_error}")
-                    return False
+                subprocess.run(['exiftool', '-ver'], capture_output=True, check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                _LOGGER.error("exiftool not found - required for MP4 metadata writing")
+                _LOGGER.info("Install with: apt-get install libimage-exiftool-perl")
+                return False
             
+            # Write both Microsoft Rating (for Windows) and standard Rating tag
+            # Microsoft Rating: 0-5 scale (what Windows Explorer displays)
+            # Standard Rating: Also 0-5 for compatibility
+            cmd = [
+                'exiftool',
+                f'-Microsoft:Rating={rating}',  # Windows-compatible tag
+                f'-Rating={rating}',             # Standard rating tag
+                '-overwrite_original',           # Don't create backup files
+                str(file_path)
+            ]
+            
+            _LOGGER.debug(f"Writing rating {rating} to {file_path} using exiftool")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                _LOGGER.info(f"Successfully wrote rating {rating} to {file_path} (Microsoft:Rating for Windows)")
+                return True
+            else:
+                _LOGGER.error(f"exiftool failed for {file_path}: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            _LOGGER.error(f"exiftool timeout writing rating to {file_path}")
+            return False
         except Exception as e:
             _LOGGER.error(f"Failed to write rating for {file_path}: {e}")
             return False
