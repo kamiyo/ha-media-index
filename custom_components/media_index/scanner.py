@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from .cache_manager import CacheManager
 from .exif_parser import ExifParser
+from .video_parser import VideoMetadataParser
 from .geocoding import GeocodeService
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,75 +169,79 @@ class MediaScanner:
                         file_id = await self.cache.add_file(metadata)
                         files_added += 1
                         
-                        # Extract and store EXIF data for images
+                        # Extract and store metadata
+                        exif_data = None
                         if metadata['file_type'] == 'image' and file_id > 0:
                             exif_data = ExifParser.extract_exif(metadata['path'])
-                            if exif_data:
-                                await self.cache.add_exif_data(file_id, exif_data)
-                                _LOGGER.debug("Extracted EXIF for: %s", metadata['filename'])
+                        elif metadata['file_type'] == 'video' and file_id > 0:
+                            exif_data = VideoMetadataParser.extract_metadata(metadata['path'])
+                        
+                        if exif_data and file_id > 0:
+                            await self.cache.add_exif_data(file_id, exif_data)
+                            _LOGGER.debug("Extracted metadata for %s: %s", metadata['filename'], metadata['file_type'])
+                            
+                            # Set is_favorited based on XMP:Rating (5 stars = favorite)
+                            rating = exif_data.get('rating') or 0
+                            if rating >= 5:
+                                await self.cache.update_favorite(metadata['path'], True)
+                                _LOGGER.debug("Marked %s as favorite (rating=%d)", metadata['filename'], rating)
+                            
+                            # Geocode GPS coordinates if available, enabled, and not already geocoded
+                            has_coords = exif_data.get('latitude') and exif_data.get('longitude')
+                            
+                            # Check if this file already has geocoded location
+                            already_geocoded = await self.cache.has_geocoded_location(file_id)
+                            
+                            _LOGGER.debug(
+                                "Geocoding check for %s: enabled=%s, service=%s, has_coords=%s, already_geocoded=%s (lat=%s, lon=%s)",
+                                metadata['filename'],
+                                self.enable_geocoding,
+                                self.geocode_service is not None,
+                                has_coords,
+                                already_geocoded,
+                                exif_data.get('latitude'),
+                                exif_data.get('longitude')
+                            )
+                            
+                            if (self.enable_geocoding and 
+                                self.geocode_service and 
+                                has_coords and 
+                                not already_geocoded):
                                 
-                                # Set is_favorited based on XMP:Rating (5 stars = favorite)
-                                rating = exif_data.get('rating', 0)
-                                if rating >= 5:
-                                    await self.cache.update_favorite(metadata['path'], True)
-                                    _LOGGER.debug("Marked %s as favorite (rating=%d)", metadata['filename'], rating)
+                                lat = exif_data['latitude']
+                                lon = exif_data['longitude']
                                 
-                                # Geocode GPS coordinates if available, enabled, and not already geocoded
-                                has_coords = exif_data.get('latitude') and exif_data.get('longitude')
+                                _LOGGER.info("Starting geocode for %s at (%s, %s)", metadata['filename'], lat, lon)
                                 
-                                # Check if this file already has geocoded location
-                                already_geocoded = await self.cache.has_geocoded_location(file_id)
+                                # Check geocode cache first
+                                cached_location = await self.cache.get_geocode_cache(lat, lon)
                                 
-                                _LOGGER.debug(
-                                    "Geocoding check for %s: enabled=%s, service=%s, has_coords=%s, already_geocoded=%s (lat=%s, lon=%s)",
-                                    metadata['filename'],
-                                    self.enable_geocoding,
-                                    self.geocode_service is not None,
-                                    has_coords,
-                                    already_geocoded,
-                                    exif_data.get('latitude'),
-                                    exif_data.get('longitude')
-                                )
-                                
-                                if (self.enable_geocoding and 
-                                    self.geocode_service and 
-                                    has_coords and 
-                                    not already_geocoded):
+                                if cached_location:
+                                    # Use cached location
+                                    await self.cache.update_exif_location(file_id, cached_location)
+                                    _LOGGER.info(
+                                        "Cache HIT for (%s, %s): %s, %s", 
+                                        round(lat, 3), round(lon, 3),
+                                        cached_location.get('location_city'),
+                                        cached_location.get('location_country')
+                                    )
+                                else:
+                                    # Fetch from geocoding service
+                                    _LOGGER.info("Cache MISS for (%s, %s) - calling Nominatim API", round(lat, 3), round(lon, 3))
+                                    location_data = await self.geocode_service.reverse_geocode(lat, lon)
                                     
-                                    lat = exif_data['latitude']
-                                    lon = exif_data['longitude']
-                                    
-                                    _LOGGER.info("Starting geocode for %s at (%s, %s)", metadata['filename'], lat, lon)
-                                    
-                                    # Check geocode cache first
-                                    cached_location = await self.cache.get_geocode_cache(lat, lon)
-                                    
-                                    if cached_location:
-                                        # Use cached location
-                                        await self.cache.update_exif_location(file_id, cached_location)
+                                    if location_data:
+                                        # Cache the result
+                                        await self.cache.add_geocode_cache(lat, lon, location_data)
+                                        # Update EXIF record
+                                        await self.cache.update_exif_location(file_id, location_data)
                                         _LOGGER.info(
-                                            "Cache HIT for (%s, %s): %s, %s", 
-                                            round(lat, 3), round(lon, 3),
-                                            cached_location.get('location_city'),
-                                            cached_location.get('location_country')
+                                            "Geocoded (%s, %s) to: %s, %s, %s",
+                                            lat, lon,
+                                            location_data.get('location_name'),
+                                            location_data.get('location_city'),
+                                            location_data.get('location_country')
                                         )
-                                    else:
-                                        # Fetch from geocoding service
-                                        _LOGGER.info("Cache MISS for (%s, %s) - calling Nominatim API", round(lat, 3), round(lon, 3))
-                                        location_data = await self.geocode_service.reverse_geocode(lat, lon)
-                                        
-                                        if location_data:
-                                            # Cache the result
-                                            await self.cache.add_geocode_cache(lat, lon, location_data)
-                                            # Update EXIF record
-                                            await self.cache.update_exif_location(file_id, location_data)
-                                            _LOGGER.info(
-                                                "Geocoded (%s, %s) to: %s, %s, %s",
-                                                lat, lon,
-                                                location_data.get('location_name'),
-                                                location_data.get('location_city'),
-                                                location_data.get('location_country')
-                                            )
                         
                         if files_added % 100 == 0:
                             _LOGGER.debug("Indexed %d files so far...", files_added)

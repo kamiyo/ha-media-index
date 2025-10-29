@@ -30,6 +30,7 @@ from .cache_manager import CacheManager
 from .scanner import MediaScanner
 from .watcher import MediaWatcher
 from .exif_parser import ExifParser
+from .video_parser import VideoMetadataParser
 from .geocoding import GeocodeService
 
 _LOGGER = logging.getLogger(__name__)
@@ -255,17 +256,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Update database
             await cache_manager.update_favorite(file_path, is_favorite)
             
-            # Write XMP:Rating to EXIF metadata
+            # Write rating to file metadata
             # Rating 5 = favorite, Rating 0 = unfavorited
             rating = 5 if is_favorite else 0
-            success = await hass.async_add_executor_job(
-                ExifParser.write_rating, file_path, rating
-            )
+            
+            # Determine file type to use appropriate parser
+            file_ext = Path(file_path).suffix.lower()
+            if file_ext in {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.heic'}:
+                success = await hass.async_add_executor_job(
+                    ExifParser.write_rating, file_path, rating
+                )
+            elif file_ext in {'.mp4', '.m4v', '.mov'}:
+                success = await hass.async_add_executor_job(
+                    VideoMetadataParser.write_rating, file_path, rating
+                )
+            else:
+                success = False
+                _LOGGER.warning("Unsupported file type for rating: %s", file_ext)
             
             if success:
-                _LOGGER.debug("Wrote XMP:Rating=%d to %s", rating, file_path)
+                _LOGGER.debug("Wrote rating=%d to %s", rating, file_path)
             else:
-                _LOGGER.warning("Failed to write XMP:Rating to %s (database updated)", file_path)
+                _LOGGER.warning("Failed to write rating to %s (database updated)", file_path)
             
             return {
                 "file_path": file_path,

@@ -89,7 +89,10 @@ class CacheManager:
                 longitude REAL,
                 location_name TEXT,
                 location_city TEXT,
+                location_state TEXT,
                 location_country TEXT,
+                rating INTEGER,
+                is_favorited INTEGER DEFAULT 0,
                 iso INTEGER,
                 aperture REAL,
                 shutter_speed TEXT,
@@ -136,6 +139,7 @@ class CacheManager:
                 precision_level INTEGER NOT NULL,
                 location_name TEXT,
                 location_city TEXT,
+                location_state TEXT,
                 location_country TEXT,
                 cached_at INTEGER NOT NULL,
                 UNIQUE(latitude, longitude, precision_level)
@@ -298,7 +302,7 @@ class CacheManager:
         # Check if EXIF data already exists with geocoded location
         existing_location = None
         async with self._db.execute("""
-            SELECT location_name, location_city, location_country
+            SELECT location_name, location_city, location_state, location_country
             FROM exif_data
             WHERE file_id = ?
         """, (file_id,)) as cursor:
@@ -307,15 +311,16 @@ class CacheManager:
                 existing_location = {
                     'location_name': row[0],
                     'location_city': row[1],
-                    'location_country': row[2]
+                    'location_state': row[2],
+                    'location_country': row[3]
                 }
         
         await self._db.execute("""
             INSERT OR REPLACE INTO exif_data 
             (file_id, camera_make, camera_model, date_taken, latitude, longitude,
-             location_name, location_city, location_country,
+             location_name, location_city, location_state, location_country,
              iso, aperture, shutter_speed, focal_length, flash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             file_id,
             exif_data.get('camera_make'),
@@ -326,6 +331,7 @@ class CacheManager:
             # Preserve existing geocoded location if available
             existing_location['location_name'] if existing_location else None,
             existing_location['location_city'] if existing_location else None,
+            existing_location['location_state'] if existing_location else None,
             existing_location['location_country'] if existing_location else None,
             exif_data.get('iso'),
             exif_data.get('aperture'),
@@ -362,7 +368,7 @@ class CacheManager:
             Dictionary with location data or None if not cached
         """
         async with self._db.execute("""
-            SELECT location_name, location_city, location_country
+            SELECT location_name, location_city, location_state, location_country
             FROM geocode_cache
             WHERE latitude = ? AND longitude = ? AND precision_level = ?
         """, (round(latitude, 3), round(longitude, 3), 3)) as cursor:
@@ -371,7 +377,8 @@ class CacheManager:
                 return {
                     'location_name': row[0],
                     'location_city': row[1],
-                    'location_country': row[2]
+                    'location_state': row[2],
+                    'location_country': row[3]
                 }
             return None
     
@@ -386,18 +393,19 @@ class CacheManager:
         Args:
             latitude: Latitude in decimal degrees
             longitude: Longitude in decimal degrees
-            location_data: Dictionary with location_name, location_city, location_country
+            location_data: Dictionary with location_name, location_city, location_state, location_country
         """
         await self._db.execute("""
             INSERT OR REPLACE INTO geocode_cache
-            (latitude, longitude, precision_level, location_name, location_city, location_country, cached_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (latitude, longitude, precision_level, location_name, location_city, location_state, location_country, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             round(latitude, 3),
             round(longitude, 3),
             3,  # precision level (3 decimal places)
             location_data.get('location_name', ''),
             location_data.get('location_city', ''),
+            location_data.get('location_state', ''),
             location_data.get('location_country', ''),
             int(datetime.now().timestamp())
         ))
@@ -413,15 +421,16 @@ class CacheManager:
         
         Args:
             file_id: ID of the file
-            location_data: Dictionary with location_name, location_city, location_country
+            location_data: Dictionary with location_name, location_city, location_state, location_country
         """
         await self._db.execute("""
             UPDATE exif_data
-            SET location_name = ?, location_city = ?, location_country = ?
+            SET location_name = ?, location_city = ?, location_state = ?, location_country = ?
             WHERE file_id = ?
         """, (
             location_data.get('location_name', ''),
             location_data.get('location_city', ''),
+            location_data.get('location_state', ''),
             location_data.get('location_country', ''),
             file_id
         ))
@@ -533,7 +542,9 @@ class CacheManager:
                 e.longitude,
                 e.location_name,
                 e.location_city,
+                e.location_state,
                 e.location_country,
+                e.is_favorited,
                 e.camera_make,
                 e.camera_model
             FROM media_files m

@@ -83,6 +83,7 @@ class GeocodeService:
             {
                 'location_name': str,  # Place name or address
                 'location_city': str,  # City name
+                'location_state': str,  # State/province/region
                 'location_country': str  # Country name
             }
         """
@@ -178,12 +179,21 @@ class GeocodeService:
             ''
         )
         
+        # Extract state/province
+        location_state = (
+            address.get('state') or
+            address.get('province') or
+            address.get('region') or
+            ''
+        )
+        
         # Extract country
         location_country = address.get('country', '')
         
         result = {
             'location_name': location_name.strip() if location_name else '',
             'location_city': location_city.strip() if location_city else '',
+            'location_state': location_state.strip() if location_state else '',
             'location_country': location_country.strip() if location_country else ''
         }
         
