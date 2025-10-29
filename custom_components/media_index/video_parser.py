@@ -173,12 +173,35 @@ class VideoMetadataParser:
             if path.suffix.lower() not in {'.mp4', '.m4v', '.mov'}:
                 return False
             
-            # Note: MP4 rating writing is not fully supported yet
-            # The database will be updated but file metadata won't be written
-            # TODO: Research proper MP4 rating tag format for mutagen
-            _LOGGER.info(f"Video rating update requested for {file_path} (rating={rating}) - database updated, file metadata write skipped")
-            return True  # Return True since database was updated successfully
+            video = MP4(file_path)
+            
+            # Convert 0-5 star rating to iTunes 0-100 scale
+            # iTunes uses 0, 20, 40, 60, 80, 100 for 0-5 stars
+            itunes_rating = rating * 20
+            
+            # Method 1: Try setting rate tag as bytes (iTunes rating format)
+            # The 'rate' tag expects specific bytes format
+            try:
+                # iTunes rating is stored as: [0x00, rating_value, 0x00, 0x00]
+                rating_bytes = bytes([0x00, itunes_rating, 0x00, 0x00])
+                video['rate'] = [rating_bytes]
+                video.save()
+                _LOGGER.info(f"Successfully wrote rating {rating} stars ({itunes_rating}/100) to {file_path}")
+                return True
+            except Exception as method1_error:
+                _LOGGER.debug(f"Method 1 (rate tag) failed: {method1_error}")
+                
+                # Method 2: Try custom iTunes tag as fallback
+                try:
+                    # Store as custom iTunes tag (plain text)
+                    video['----:com.apple.iTunes:rating'] = str(rating).encode('utf-8')
+                    video.save()
+                    _LOGGER.info(f"Successfully wrote custom rating {rating} to {file_path}")
+                    return True
+                except Exception as method2_error:
+                    _LOGGER.error(f"Both rating write methods failed for {file_path}: method1={method1_error}, method2={method2_error}")
+                    return False
             
         except Exception as e:
-            _LOGGER.error(f"Failed to process rating for {file_path}: {e}")
+            _LOGGER.error(f"Failed to write rating for {file_path}: {e}")
             return False
