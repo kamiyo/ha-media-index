@@ -157,13 +157,9 @@ class VideoMetadataParser:
         """Write rating to video file metadata.
         
         MP4 Rating Storage for Windows Compatibility:
-        - Windows Explorer reads Microsoft-specific tags, NOT standard iTunes tags
-        - We need to write BOTH for maximum compatibility:
-          1. Microsoft:Rating for Windows Properties display
-          2. iTunes rating for macOS/iTunes compatibility
-        
-        Since mutagen doesn't support Microsoft tags directly, we use exiftool
-        which is the standard for cross-platform metadata writing.
+        For MP4/MOV files, writes rating using mutagen with iTunes-compatible tags.
+        Note: This writes iTunes tags which work on macOS/iTunes. Windows Explorer
+        requires Microsoft:Rating tag which needs exiftool (not available in HA executor).
         
         Args:
             file_path: Path to the video file
@@ -172,10 +168,10 @@ class VideoMetadataParser:
         Returns:
             True if rating was written successfully, False otherwise
         """
-        import subprocess
-        import shutil
-        import os
-        
+        if MP4 is None:
+            _LOGGER.warning("mutagen not available, cannot write video metadata")
+            return False
+            
         try:
             from pathlib import Path
             
@@ -183,44 +179,23 @@ class VideoMetadataParser:
             if path.suffix.lower() not in {'.mp4', '.m4v', '.mov'}:
                 return False
             
-            # Check for exiftool - try common locations since PATH may not be set in HA environment
-            exiftool_path = shutil.which('exiftool')
-            if not exiftool_path:
-                # Try common installation paths
-                for possible_path in ['/usr/bin/exiftool', '/usr/local/bin/exiftool']:
-                    if os.path.isfile(possible_path):
-                        exiftool_path = possible_path
-                        break
+            # Load the MP4 file
+            video = MP4(file_path)
             
-            if not exiftool_path:
-                _LOGGER.error("exiftool not found in PATH or common locations - required for MP4 metadata writing")
-                _LOGGER.info("Install with: apk add exiftool (or apt-get install libimage-exiftool-perl on Debian)")
-                return False
+            # Write rating using standard MP4 freeform atoms
+            # ----:com.apple.iTunes:rate - iTunes rating (0-100 scale)
+            itunes_rating = rating * 20  # Convert 0-5 to 0-100
+            video['----:com.apple.iTunes:rate'] = str(itunes_rating).encode('utf-8')
             
-            # Write both Microsoft Rating (for Windows) and standard Rating tag
-            # Microsoft Rating: 0-5 scale (what Windows Explorer displays)
-            # Standard Rating: Also 0-5 for compatibility
-            cmd = [
-                exiftool_path,  # Use absolute path
-                f'-Microsoft:Rating={rating}',  # Windows-compatible tag
-                f'-Rating={rating}',             # Standard rating tag
-                '-overwrite_original',           # Don't create backup files
-                str(file_path)
-            ]
+            # Also write as simple rating value
+            video['----:com.apple.iTunes:rating'] = str(rating).encode('utf-8')
             
-            _LOGGER.debug(f"Writing rating {rating} to {file_path} using exiftool at {exiftool_path}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=False)
+            # Save changes
+            video.save()
             
-            if result.returncode == 0:
-                _LOGGER.info(f"Successfully wrote rating {rating} to {file_path} (Microsoft:Rating for Windows)")
-                return True
-            else:
-                _LOGGER.error(f"exiftool failed for {file_path}: {result.stderr}")
-                return False
+            _LOGGER.info(f"Successfully wrote rating {rating} to {file_path} using mutagen (iTunes tags)")
+            return True
                 
-        except subprocess.TimeoutExpired:
-            _LOGGER.error(f"exiftool timeout writing rating to {file_path}")
-            return False
         except Exception as e:
             _LOGGER.error(f"Failed to write rating for {file_path}: {e}")
             return False
