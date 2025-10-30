@@ -132,3 +132,20 @@ delete_media:
       selector:
         text:
 
+restore_edited_files:
+  name: Restore Edited Files
+  description: Restore files from _Edit folder back to their original locations
+  fields:
+    folder_filter:
+      name: Folder Filter
+      description: Filter by destination folder (defaults to "_Edit")
+      default: "_Edit"
+      example: "_Edit"
+      selector:
+        text:
+    file_path:
+      name: File Path
+      description: Optional - restore only this specific file
+      example: "/media/Photo/PhotoLibrary/_Edit/IMG_1234.jpg"
+      selector:
+        text:

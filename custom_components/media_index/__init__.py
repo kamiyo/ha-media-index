@@ -25,6 +25,7 @@ from .const import (
     SERVICE_GEOCODE_FILE,
     SERVICE_SCAN_FOLDER,
     SERVICE_MARK_FOR_EDIT,
+    SERVICE_RESTORE_EDITED_FILES,
 )
 from .cache_manager import CacheManager
 from .scanner import MediaScanner
@@ -72,6 +73,11 @@ SERVICE_DELETE_MEDIA_SCHEMA = vol.Schema({
 
 SERVICE_MARK_FOR_EDIT_SCHEMA = vol.Schema({
     vol.Required("file_path"): cv.string,
+})
+
+SERVICE_RESTORE_EDITED_FILES_SCHEMA = vol.Schema({
+    vol.Optional("folder_filter"): cv.string,  # e.g., "_Edit"
+    vol.Optional("file_path"): cv.string,  # Restore specific file
 })
 
 
@@ -383,6 +389,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 str(dest_path)
             )
             
+            # Record the move in move_history table
+            await cache_manager.record_file_move(
+                original_path=file_path,
+                new_path=str(dest_path),
+                reason="edit"
+            )
+            
             # Remove from database (will be re-added on next scan if moved back)
             await cache_manager.delete_file(file_path)
             
@@ -397,6 +410,108 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Error marking file for edit: %s", e)
             return {
                 "file_path": file_path,
+                "status": "error",
+                "error": str(e)
+            }
+    
+    async def handle_restore_edited_files(call):
+        """Handle restore_edited_files service call."""
+        import shutil
+        import os
+        
+        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
+        scanner = hass.data[DOMAIN][entry.entry_id]["scanner"]
+        
+        folder_filter = call.data.get("folder_filter", "_Edit")
+        specific_file = call.data.get("file_path")
+        
+        _LOGGER.info("Restoring edited files (filter: %s, specific: %s)", folder_filter, specific_file)
+        
+        try:
+            # Get pending restores from move_history
+            pending_moves = await cache_manager.get_pending_restores(folder_filter)
+            
+            if specific_file:
+                # Filter to specific file
+                pending_moves = [m for m in pending_moves if m["new_path"] == specific_file]
+            
+            restored_count = 0
+            failed_count = 0
+            results = []
+            
+            for move in pending_moves:
+                move_id = move["id"]
+                original_path = move["original_path"]
+                current_path = move["new_path"]
+                
+                try:
+                    # Check if file still exists at new location
+                    if not await hass.async_add_executor_job(os.path.exists, current_path):
+                        _LOGGER.warning("File not found at %s, skipping restore", current_path)
+                        results.append({
+                            "original_path": original_path,
+                            "current_path": current_path,
+                            "status": "not_found"
+                        })
+                        failed_count += 1
+                        continue
+                    
+                    # Create destination directory if needed
+                    dest_dir = Path(original_path).parent
+                    await hass.async_add_executor_job(dest_dir.mkdir, True, True)
+                    
+                    # Check if destination already exists
+                    if await hass.async_add_executor_job(os.path.exists, original_path):
+                        _LOGGER.warning("Destination %s already exists, skipping restore", original_path)
+                        results.append({
+                            "original_path": original_path,
+                            "current_path": current_path,
+                            "status": "destination_exists"
+                        })
+                        failed_count += 1
+                        continue
+                    
+                    # Move file back to original location
+                    await hass.async_add_executor_job(
+                        shutil.move,
+                        current_path,
+                        original_path
+                    )
+                    
+                    # Mark as restored in database
+                    await cache_manager.mark_move_restored(move_id)
+                    
+                    # Trigger rescan of the file
+                    await scanner.scan_file(original_path)
+                    
+                    _LOGGER.info("Restored file: %s -> %s", current_path, original_path)
+                    results.append({
+                        "original_path": original_path,
+                        "current_path": current_path,
+                        "status": "restored"
+                    })
+                    restored_count += 1
+                    
+                except Exception as e:
+                    _LOGGER.error("Error restoring %s: %s", current_path, e)
+                    results.append({
+                        "original_path": original_path,
+                        "current_path": current_path,
+                        "status": "error",
+                        "error": str(e)
+                    })
+                    failed_count += 1
+            
+            return {
+                "total_pending": len(pending_moves),
+                "restored": restored_count,
+                "failed": failed_count,
+                "results": results
+            }
+            
+        except Exception as e:
+            _LOGGER.error("Error in restore_edited_files service: %s", e)
+            return {
                 "status": "error",
                 "error": str(e)
             }
@@ -477,7 +592,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         supports_response=SupportsResponse.ONLY,
     )
     
-    _LOGGER.info("Registered 7 services")
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESTORE_EDITED_FILES,
+        handle_restore_edited_files,
+        schema=SERVICE_RESTORE_EDITED_FILES_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    
+    _LOGGER.info("Media Index services registered")
 
     # Register update listener for config changes
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))

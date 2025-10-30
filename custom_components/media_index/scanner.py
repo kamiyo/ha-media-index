@@ -263,3 +263,72 @@ class MediaScanner:
         
         finally:
             self._is_scanning = False
+    
+    async def scan_file(self, file_path: str) -> bool:
+        """Scan and index a single file.
+        
+        Args:
+            file_path: Full path to the file to scan
+            
+        Returns:
+            True if successfully indexed, False otherwise
+        """
+        try:
+            if not os.path.exists(file_path):
+                _LOGGER.warning("File does not exist: %s", file_path)
+                return False
+            
+            if not self._is_media_file(file_path):
+                _LOGGER.debug("Not a media file: %s", file_path)
+                return False
+            
+            # Get basic file metadata
+            metadata = self._get_file_metadata(file_path)
+            if not metadata:
+                return False
+            
+            # Add to database
+            file_id = await self.cache.add_file(metadata)
+            if file_id <= 0:
+                _LOGGER.warning("Failed to add file to database: %s", file_path)
+                return False
+            
+            # Extract EXIF/video metadata
+            exif_data = None
+            if metadata['file_type'] == 'image':
+                exif_data = ExifParser.extract_exif(file_path)
+            elif metadata['file_type'] == 'video':
+                exif_data = VideoMetadataParser.extract_metadata(file_path)
+            
+            if exif_data:
+                await self.cache.add_exif_data(file_id, exif_data)
+                
+                # Check for favorite rating
+                rating = exif_data.get('rating') or 0
+                if rating >= 5:
+                    await self.cache.update_favorite(file_path, True)
+                
+                # Geocode if enabled and has coordinates
+                if self.enable_geocoding and self.geocode_service:
+                    lat = exif_data.get('latitude')
+                    lon = exif_data.get('longitude')
+                    
+                    if lat and lon:
+                        # Check cache first
+                        location_data = await self.cache.get_geocode_cache(lat, lon)
+                        if not location_data:
+                            # Call geocoding API
+                            location_data = await self.geocode_service.reverse_geocode(lat, lon)
+                            if location_data:
+                                await self.cache.add_geocode_cache(lat, lon, location_data)
+                        
+                        if location_data:
+                            await self.cache.update_exif_location(file_id, location_data)
+            
+            _LOGGER.info("Successfully indexed file: %s", file_path)
+            return True
+            
+        except Exception as e:
+            _LOGGER.error("Error scanning file %s: %s", file_path, e)
+            return False
+

@@ -165,6 +165,29 @@ class CacheManager:
             )
         """)
         
+        # Move history table for tracking file moves (e.g., to _Edit folder)
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS move_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                original_path TEXT NOT NULL,
+                new_path TEXT NOT NULL,
+                moved_at INTEGER NOT NULL,
+                move_reason TEXT,
+                restored INTEGER DEFAULT 0,
+                restored_at INTEGER
+            )
+        """)
+        
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_move_history_new_path 
+            ON move_history(new_path)
+        """)
+        
+        await self._db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_move_history_restored 
+            ON move_history(restored)
+        """)
+        
         await self._db.commit()
         _LOGGER.debug("Database schema created/verified")
     
@@ -733,6 +756,83 @@ class CacheManager:
         await self._db.commit()
         _LOGGER.info("Deleted file from database: %s", file_path)
         return True
+    
+    async def record_file_move(
+        self, 
+        original_path: str, 
+        new_path: str, 
+        reason: str = None
+    ) -> None:
+        """Record a file move to move_history table.
+        
+        Args:
+            original_path: Original file path
+            new_path: New file path
+            reason: Reason for move (e.g., "edit", "junk")
+        """
+        import time
+        
+        await self._db.execute(
+            """INSERT INTO move_history 
+               (original_path, new_path, moved_at, move_reason, restored)
+               VALUES (?, ?, ?, ?, 0)""",
+            (original_path, new_path, int(time.time()), reason)
+        )
+        await self._db.commit()
+        _LOGGER.debug("Recorded move: %s -> %s (reason: %s)", original_path, new_path, reason)
+    
+    async def get_pending_restores(self, folder_path: str = None) -> list:
+        """Get list of files that can be restored.
+        
+        Args:
+            folder_path: Optional filter by destination folder (e.g., "_Edit")
+            
+        Returns:
+            List of move history records that haven't been restored
+        """
+        if folder_path:
+            query = """SELECT id, original_path, new_path, moved_at, move_reason
+                      FROM move_history 
+                      WHERE restored = 0 AND new_path LIKE ?
+                      ORDER BY moved_at DESC"""
+            params = (f"%{folder_path}%",)
+        else:
+            query = """SELECT id, original_path, new_path, moved_at, move_reason
+                      FROM move_history 
+                      WHERE restored = 0
+                      ORDER BY moved_at DESC"""
+            params = ()
+        
+        async with self._db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+        
+        return [
+            {
+                "id": row[0],
+                "original_path": row[1],
+                "new_path": row[2],
+                "moved_at": row[3],
+                "move_reason": row[4]
+            }
+            for row in rows
+        ]
+    
+    async def mark_move_restored(self, move_id: int) -> None:
+        """Mark a move as restored.
+        
+        Args:
+            move_id: ID of the move_history record
+        """
+        import time
+        
+        await self._db.execute(
+            """UPDATE move_history 
+               SET restored = 1, restored_at = ?
+               WHERE id = ?""",
+            (int(time.time()), move_id)
+        )
+        await self._db.commit()
+        _LOGGER.debug("Marked move %d as restored", move_id)
     
     async def close(self) -> None:
         """Close database connection."""
