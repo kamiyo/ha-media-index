@@ -38,47 +38,48 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
-# Service schemas
+# Service schemas (all allow extra fields for target selector support)
 SERVICE_GET_RANDOM_ITEMS_SCHEMA = vol.Schema({
     vol.Optional("count", default=10): cv.positive_int,
     vol.Optional("folder"): cv.string,
     vol.Optional("file_type"): vol.In(["image", "video"]),
     vol.Optional("date_from"): cv.string,
     vol.Optional("date_to"): cv.string,
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_GET_FILE_METADATA_SCHEMA = vol.Schema({
     vol.Required("file_path"): cv.string,
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_GEOCODE_FILE_SCHEMA = vol.Schema({
     vol.Optional("file_id"): cv.positive_int,
     vol.Optional("latitude"): vol.Coerce(float),
     vol.Optional("longitude"): vol.Coerce(float),
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_SCAN_FOLDER_SCHEMA = vol.Schema({
     vol.Optional("folder_path"): cv.string,
     vol.Optional("force_rescan", default=False): cv.boolean,
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_MARK_FAVORITE_SCHEMA = vol.Schema({
     vol.Required("file_path"): cv.string,
     vol.Optional("is_favorite", default=True): cv.boolean,
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_DELETE_MEDIA_SCHEMA = vol.Schema({
     vol.Required("file_path"): cv.string,
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_MARK_FOR_EDIT_SCHEMA = vol.Schema({
     vol.Required("file_path"): cv.string,
-})
+}, extra=vol.ALLOW_EXTRA)
 
 SERVICE_RESTORE_EDITED_FILES_SCHEMA = vol.Schema({
     vol.Optional("folder_filter"): cv.string,  # e.g., "_Edit"
     vol.Optional("file_path"): cv.string,  # Restore specific file
-})
+    vol.Optional("entity_id"): cv.entity_ids,  # Target entity (from UI)
+}, extra=vol.ALLOW_EXTRA)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -155,10 +156,73 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Starting file system watcher")
         watcher.start_watching(base_folder, watched_folders)
     
+    # Register services (only once, on first entry setup)
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_RANDOM_ITEMS):
+        _register_services(hass)
+    
+    # Add entry update listener
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    
+    return True
+
+
+def _get_entry_id_from_call(hass: HomeAssistant, call: ServiceCall) -> str:
+    """Get entry_id from service call target or use default.
+    
+    Supports multiple integration instances by extracting entry_id from target entity.
+    
+    Args:
+        hass: Home Assistant instance
+        call: Service call with optional target selector
+        
+    Returns:
+        Entry ID to use for this service call
+        
+    Raises:
+        ValueError: If no integration instance found
+    """
+    # Check if target specified (new style target selector)
+    # Target is at call.context.target, not in call.data
+    entity_id = None
+    
+    if hasattr(call, 'context') and hasattr(call.context, 'target'):
+        target = call.context.target
+        if isinstance(target, dict) and 'entity_id' in target:
+            entity_id = target['entity_id']
+            if isinstance(entity_id, list):
+                entity_id = entity_id[0]  # Use first entity
+    
+    if entity_id:
+        # Extract entry_id from entity registry
+        from homeassistant.helpers import entity_registry as er
+        entity_registry = er.async_get(hass)
+        entity_entry = entity_registry.async_get(entity_id)
+        
+        if entity_entry and entity_entry.config_entry_id:
+            _LOGGER.debug("Using entry_id from target entity %s: %s", entity_id, entity_entry.config_entry_id)
+            return entity_entry.config_entry_id
+    
+    # Fallback: use first available entry_id (single-instance compatibility)
+    if DOMAIN in hass.data and hass.data[DOMAIN]:
+        entry_id = next(iter(hass.data[DOMAIN].keys()))
+        _LOGGER.debug("No target specified, using first entry_id: %s", entry_id)
+        return entry_id
+    
+    raise ValueError("No Media Index integration instance found")
+
+
+def _register_services(hass: HomeAssistant):
+    """Register all Media Index services.
+    
+    Services use target selector to support multiple instances.
+    If no target specified, defaults to first instance (backward compatibility).
+    """
+    
     # Register services
     async def handle_get_random_items(call):
         """Handle get_random_items service call."""
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         
         items = await cache_manager.get_random_files(
             count=call.data.get("count", 10),
@@ -173,7 +237,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     async def handle_get_file_metadata(call):
         """Handle get_file_metadata service call."""
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         file_path = call.data["file_path"]
         
         metadata = await cache_manager.get_file_by_path(file_path)
@@ -187,8 +252,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     async def handle_geocode_file(call):
         """Handle geocode_file service call for progressive geocoding."""
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
-        geocode_service = hass.data[DOMAIN][entry.entry_id].get("geocode_service")
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        geocode_service = hass.data[DOMAIN][entry_id].get("geocode_service")
         
         if not geocode_service:
             _LOGGER.error("Geocoding service not enabled")
@@ -252,7 +318,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     async def handle_mark_favorite(call):
         """Handle mark_favorite service call."""
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         file_path = call.data["file_path"]
         is_favorite = call.data.get("is_favorite", True)
         
@@ -303,8 +370,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle delete_media service call."""
         import shutil
         
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
-        config = hass.data[DOMAIN][entry.entry_id]["config"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         
         file_path = call.data["file_path"]
         base_folder = config.get(CONF_BASE_FOLDER, "/media")
@@ -357,8 +425,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         """Handle mark_for_edit service call."""
         import shutil
         
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
-        config = hass.data[DOMAIN][entry.entry_id]["config"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         
         file_path = call.data["file_path"]
         base_folder = config.get(CONF_BASE_FOLDER, "/media")
@@ -374,13 +443,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             file_name = Path(file_path).name
             dest_path = edit_folder / file_name
             
-            # Handle duplicate names by appending number
-            counter = 1
-            while dest_path.exists():
-                stem = Path(file_path).stem
-                suffix = Path(file_path).suffix
-                dest_path = edit_folder / f"{stem}_{counter}{suffix}"
-                counter += 1
+            # If destination already exists, we'll overwrite it
+            # (Don't add _1 suffix - just move/overwrite)
             
             # Move file to edit folder
             await hass.async_add_executor_job(
@@ -389,7 +453,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 str(dest_path)
             )
             
-            # Record the move in move_history table
+            # Record the move in move_history table (without _1 suffix)
             await cache_manager.record_file_move(
                 original_path=file_path,
                 new_path=str(dest_path),
@@ -419,8 +483,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         import shutil
         import os
         
-        cache_manager = hass.data[DOMAIN][entry.entry_id]["cache_manager"]
-        scanner = hass.data[DOMAIN][entry.entry_id]["scanner"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        scanner = hass.data[DOMAIN][entry_id]["scanner"]
         
         folder_filter = call.data.get("folder_filter", "_Edit")
         specific_file = call.data.get("file_path")
@@ -458,7 +523,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     
                     # Create destination directory if needed
                     dest_dir = Path(original_path).parent
-                    await hass.async_add_executor_job(dest_dir.mkdir, True, True)
+                    if not await hass.async_add_executor_job(dest_dir.exists):
+                        await hass.async_add_executor_job(lambda: dest_dir.mkdir(parents=True, exist_ok=True))
                     
                     # Check if destination already exists
                     if await hass.async_add_executor_job(os.path.exists, original_path):
@@ -518,8 +584,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     async def handle_scan_folder(call):
         """Handle scan_folder service call."""
-        scanner = hass.data[DOMAIN][entry.entry_id]["scanner"]
-        config = hass.data[DOMAIN][entry.entry_id]["config"]
+        entry_id = _get_entry_id_from_call(hass, call)
+        scanner = hass.data[DOMAIN][entry_id]["scanner"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         
         folder_path = call.data.get("folder_path", config.get(CONF_BASE_FOLDER, "/media"))
         force_rescan = call.data.get("force_rescan", False)
@@ -601,12 +668,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     
     _LOGGER.info("Media Index services registered")
-
-    # Register update listener for config changes
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
-
-    _LOGGER.info("Media Index integration setup complete")
-    return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -251,6 +251,20 @@ To reset the database, delete this file and trigger a rescan.
 
 ## Limitations & Known Issues
 
+### Multi-Instance Support
+
+**⚠️ Services currently support single instance only.**
+
+While you can configure multiple integration instances (e.g., separate folders for Photos and Videos), services will only operate on the **last configured instance**. This is a known limitation that will be addressed in a future update by implementing target selectors.
+
+**Workaround:**
+- Use a single integration instance that covers all your media folders
+- Configure multiple folders via the `watched_folders` option
+
+**Planned Fix:**
+- Add target selector support to all services (like the card uses)
+- Allow services to specify which instance via `target: entity_id`
+
 ### Video Rating Persistence
 
 **⚠️ Video ratings are stored in the database only, not written to MP4 files.**

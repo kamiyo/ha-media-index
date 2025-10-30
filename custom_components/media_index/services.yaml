@@ -3,6 +3,10 @@
 get_random_items:
   name: Get Random Media Items
   description: Get random media items from the index with optional filtering
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     count:
       name: Count
@@ -45,6 +49,10 @@ get_random_items:
 get_file_metadata:
   name: Get File Metadata
   description: Get detailed metadata for a specific file
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     file_path:
       name: File Path
@@ -57,6 +65,10 @@ get_file_metadata:
 geocode_file:
   name: Geocode File
   description: Get location name for a file with GPS coordinates (cache-first, on-demand)
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     file_id:
       name: File ID
@@ -88,6 +100,10 @@ geocode_file:
 scan_folder:
   name: Scan Folder
   description: Manually trigger a folder scan
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     folder_path:
       name: Folder Path
@@ -105,6 +121,10 @@ scan_folder:
 mark_favorite:
   name: Mark File as Favorite
   description: Mark a file as favorite (updates EXIF and database)
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     file_path:
       name: File Path
@@ -123,6 +143,10 @@ mark_favorite:
 delete_media:
   name: Delete Media File
   description: Move a media file to the junk folder (soft delete)
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     file_path:
       name: File Path
@@ -132,9 +156,29 @@ delete_media:
       selector:
         text:
 
+mark_for_edit:
+  name: Mark File for Editing
+  description: Move a media file to the edit folder for processing
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
+  fields:
+    file_path:
+      name: File Path
+      description: Full path to the media file to mark for editing
+      required: true
+      example: "/media/Photo/PhotoLibrary/New/IMG_1234.jpg"
+      selector:
+        text:
+
 restore_edited_files:
   name: Restore Edited Files
-  description: Restore files from _Edit folder back to their original locations
+  description: Restore files from the edit folder back to their original locations
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
   fields:
     folder_filter:
       name: Folder Filter
