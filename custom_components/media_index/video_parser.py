@@ -41,44 +41,61 @@ class VideoMetadataParser:
                 
             result: Dict[str, Any] = {}
             
-            # Extract creation date
-            # Try multiple fields where creation date might be stored
-            # MP4 files can store dates in various atoms/tags
-            creation_date = None
+            # Extract creation date from MP4 atoms
+            # MP4 files store creation dates in the movie/media/track header atoms
+            # These are stored as seconds since midnight, January 1, 1904 UTC (MP4 epoch)
+            creation_timestamp = None
             
-            # Try common creation date fields in order of preference:
-            # 1. Creation date from QuickTime metadata
-            if hasattr(video, 'tags') and video.tags:
-                # com.apple.quicktime.creationdate - Most reliable for iPhone/Apple devices
-                if 'com.apple.quicktime.creationdate' in video:
-                    creation_date = video['com.apple.quicktime.creationdate'][0]
+            # Try to access raw MP4 atoms through mutagen's internal structure
+            # The 'tags' attribute contains the moov.udta.meta atoms
+            # We need to access moov.mvhd (Movie Header) for creation_time
+            try:
+                # Method 1: Try to access movie header creation time from file atoms
+                # mutagen stores this in the MP4.info object
+                if hasattr(video, 'info'):
+                    # Check for various time fields that might be present
+                    for time_attr in ['creation_time', 'modification_time']:
+                        if hasattr(video.info, time_attr):
+                            timestamp = getattr(video.info, time_attr)
+                            if timestamp and timestamp > 0:
+                                # MP4 timestamps are seconds since 1904-01-01 00:00:00 UTC
+                                # Convert to Unix timestamp (seconds since 1970-01-01)
+                                # Difference between 1904 and 1970 is 2,082,844,800 seconds
+                                MP4_EPOCH_OFFSET = 2082844800
+                                unix_timestamp = timestamp - MP4_EPOCH_OFFSET
+                                
+                                # Sanity check: timestamp should be reasonable (after 1990, before 2050)
+                                if 631152000 < unix_timestamp < 2524608000:  # 1990-01-01 to 2050-01-01
+                                    creation_timestamp = unix_timestamp
+                                    _LOGGER.debug(f"Extracted {time_attr} from MP4: {unix_timestamp} ({datetime.fromtimestamp(unix_timestamp)})")
+                                    break
+            except Exception as e:
+                _LOGGER.debug(f"Failed to extract creation time from MP4 atoms: {e}")
             
-            # 2. Copyright date (©day) - Sometimes used for creation
-            if not creation_date and '©day' in video:
-                creation_date = video['©day'][0] if video['©day'] else None
-            
-            # 3. Try to get creation time from file's internal atoms
-            # mutagen MP4 objects have an 'info' attribute with creation_time
-            if not creation_date and hasattr(video, 'info') and hasattr(video.info, 'creation_time'):
-                # creation_time is usually a Unix timestamp integer
-                creation_time = video.info.creation_time
-                if creation_time and creation_time > 0:
-                    # Convert Unix timestamp to datetime string
-                    try:
-                        dt = datetime.fromtimestamp(creation_time)
-                        creation_date = dt.strftime('%Y-%m-%d %H:%M:%S')
-                    except (ValueError, OSError):
-                        pass
-            
-            if creation_date:
-                parsed_date = VideoMetadataParser._parse_datetime(creation_date)
+            # Method 2: Try QuickTime metadata tags (for files created by Apple devices)
+            if not creation_timestamp and 'com.apple.quicktime.creationdate' in video:
+                creation_date_str = video['com.apple.quicktime.creationdate'][0]
+                parsed_date = VideoMetadataParser._parse_datetime(creation_date_str)
                 if parsed_date:
-                    # Convert to Unix timestamp for consistency with EXIF parser
                     try:
                         dt = datetime.strptime(parsed_date, '%Y-%m-%d %H:%M:%S')
-                        result['date_taken'] = int(dt.timestamp())
+                        creation_timestamp = int(dt.timestamp())
                     except ValueError:
-                        result['date_taken'] = None
+                        pass
+            
+            # Method 3: Try copyright date (©day) as fallback
+            if not creation_timestamp and '©day' in video and video['©day']:
+                creation_date_str = video['©day'][0]
+                parsed_date = VideoMetadataParser._parse_datetime(creation_date_str)
+                if parsed_date:
+                    try:
+                        dt = datetime.strptime(parsed_date, '%Y-%m-%d %H:%M:%S')
+                        creation_timestamp = int(dt.timestamp())
+                    except ValueError:
+                        pass
+            
+            if creation_timestamp:
+                result['date_taken'] = creation_timestamp
             
             # Extract GPS coordinates from XMP if available
             # MP4 files can store GPS in com.apple.quicktime.location.ISO6709 or XMP
