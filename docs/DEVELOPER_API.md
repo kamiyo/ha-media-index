@@ -1,0 +1,602 @@
+# Media Index Developer API
+
+This guide is for developers integrating with the Media Index custom component via the Home Assistant WebSocket API.
+
+## Table of Contents
+- [WebSocket API Overview](#websocket-api-overview)
+- [Calling Services via WebSocket](#calling-services-via-websocket)
+- [Service Examples](#service-examples)
+- [Response Handling](#response-handling)
+- [Error Handling](#error-handling)
+- [Best Practices](#best-practices)
+
+## WebSocket API Overview
+
+Media Index services support the `return_response` feature in Home Assistant, allowing services to return data directly via WebSocket instead of using events or state changes.
+
+### Why Use WebSocket API?
+
+- **Immediate responses** - Get data back synchronously
+- **No polling** - Don't wait for state updates
+- **Rich data** - Return complex objects (arrays, nested data)
+- **Better error handling** - Explicit success/failure responses
+
+## Calling Services via WebSocket
+
+### Basic Pattern
+
+All Media Index services can be called using `hass.callWS()` in custom Lovelace cards:
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'service_name',
+  service_data: {
+    // Service parameters
+  },
+  return_response: true  // CRITICAL: Required to get response data
+});
+```
+
+### Response Structure
+
+WebSocket responses are wrapped in a standard format:
+
+```javascript
+{
+  context: {
+    id: "...",
+    parent_id: null,
+    user_id: "..."
+  },
+  response: {
+    // Actual service response data
+  }
+}
+```
+
+**Always extract the inner response:**
+
+```javascript
+const response = wsResponse?.response || wsResponse;
+```
+
+## Service Examples
+
+### 1. Get Random Media Items
+
+Retrieve random media files with optional filtering.
+
+```javascript
+const wsResponse = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'get_random_items',
+  service_data: {
+    count: 100,                    // Number of items to return
+    folder: '/media/Photo/New',    // Optional: filter by folder
+    file_type: 'image',            // Optional: 'image' or 'video'
+    favorites_only: false,         // Optional: only favorited files
+    date_from: '2024-01-01',       // Optional: ISO date string
+    date_to: '2024-12-31'          // Optional: ISO date string
+  },
+  return_response: true
+});
+
+const response = wsResponse?.response || wsResponse;
+
+if (response && response.items && Array.isArray(response.items)) {
+  console.log(`Received ${response.items.length} items`);
+  
+  response.items.forEach(item => {
+    console.log('Path:', item.path);
+    console.log('Type:', item.media_content_type);
+    console.log('Favorited:', item.is_favorited);
+    console.log('Metadata:', item.metadata);
+  });
+}
+```
+
+**Response Item Structure:**
+
+```javascript
+{
+  id: 1234,
+  path: "/media/Photo/PhotoLibrary/sunset.jpg",
+  filename: "sunset.jpg",
+  folder: "/media/Photo/PhotoLibrary",
+  file_type: "image",
+  media_content_type: "image/jpeg",
+  file_size: 2048576,
+  date_taken: "2024-10-15T14:30:00",
+  date_added: "2024-10-15T18:45:00",
+  is_favorited: false,
+  metadata: {
+    exif_make: "Canon",
+    exif_model: "EOS R5",
+    exif_focal_length: 50,
+    exif_f_number: 1.8,
+    exif_iso: 100,
+    gps_latitude: 37.7749,
+    gps_longitude: -122.4194,
+    location_name: "San Francisco",
+    location_city: "San Francisco",
+    location_state: "California",
+    location_country: "United States",
+    rating: 4
+  }
+}
+```
+
+### 2. Mark File as Favorite
+
+Toggle favorite status for a file (writes to database and EXIF).
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'mark_favorite',
+  service_data: {
+    file_path: '/media/Photo/PhotoLibrary/sunset.jpg',
+    is_favorite: true  // or false to unfavorite
+  },
+  return_response: true
+});
+
+console.log('Favorite status updated:', response);
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  file_path: "/media/Photo/PhotoLibrary/sunset.jpg",
+  is_favorite: true
+}
+```
+
+### 3. Delete Media File
+
+Move a file to the `_Junk` folder.
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'delete_media',
+  service_data: {
+    file_path: '/media/Photo/PhotoLibrary/bad_photo.jpg'
+  },
+  return_response: true
+});
+
+console.log('File deleted:', response);
+```
+
+**Response:**
+
+```javascript
+{
+  success: true,
+  file_path: "/media/Photo/PhotoLibrary/bad_photo.jpg",
+  new_path: "/media/Photo/PhotoLibrary/_Junk/bad_photo.jpg"
+}
+```
+
+### 4. Mark File for Editing
+
+Move a file to the `_Edit` folder.
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'mark_for_edit',
+  service_data: {
+    file_path: '/media/Photo/PhotoLibrary/needs_editing.jpg'
+  },
+  return_response: true
+});
+```
+
+### 5. Get File Metadata
+
+Retrieve detailed metadata for a specific file.
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'get_file_metadata',
+  service_data: {
+    file_path: '/media/Photo/PhotoLibrary/sunset.jpg'
+  },
+  return_response: true
+});
+
+console.log('File metadata:', response);
+```
+
+### 6. Force Geocode File
+
+Trigger geocoding for a file with GPS coordinates.
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'geocode_file',
+  service_data: {
+    file_path: '/media/Photo/PhotoLibrary/vacation.jpg'
+  },
+  return_response: true
+});
+```
+
+### 7. Trigger Manual Scan
+
+Start a manual folder scan.
+
+```javascript
+const response = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'scan_folder',
+  service_data: {
+    folder_path: '/media/Photo/PhotoLibrary/New',  // Optional: specific folder
+    force_rescan: false  // Optional: re-extract existing files
+  },
+  return_response: true
+});
+```
+
+## Response Handling
+
+### Success Response Pattern
+
+```javascript
+try {
+  const wsResponse = await this.hass.callWS({
+    type: 'call_service',
+    domain: 'media_index',
+    service: 'get_random_items',
+    service_data: { count: 50 },
+    return_response: true
+  });
+
+  // Extract inner response
+  const response = wsResponse?.response || wsResponse;
+
+  if (response && response.items && Array.isArray(response.items)) {
+    // Success - process items
+    console.log(`✅ Received ${response.items.length} items`);
+    return response.items;
+  } else {
+    // Unexpected response format
+    console.error('❌ Unexpected response format:', response);
+    return [];
+  }
+} catch (error) {
+  // Service call failed
+  console.error('❌ Service call failed:', error);
+  return [];
+}
+```
+
+### Filtering Excluded Files
+
+If you're maintaining an exclusion list (e.g., deleted/moved files), filter them **before** processing:
+
+```javascript
+const response = wsResponse?.response || wsResponse;
+
+if (response && response.items && Array.isArray(response.items)) {
+  // Filter out excluded files
+  const filteredItems = response.items.filter(item => {
+    const isExcluded = this._excludedFiles.has(item.path);
+    if (isExcluded) {
+      console.log(`⏭️ Filtering out excluded file: ${item.path}`);
+    }
+    return !isExcluded;
+  });
+  
+  console.log(`Filtered ${response.items.length - filteredItems.length} excluded files`);
+  return filteredItems;
+}
+```
+
+## Error Handling
+
+### Service Call Errors
+
+```javascript
+try {
+  const response = await this.hass.callWS({
+    type: 'call_service',
+    domain: 'media_index',
+    service: 'mark_favorite',
+    service_data: {
+      file_path: '/invalid/path.jpg',
+      is_favorite: true
+    },
+    return_response: true
+  });
+} catch (error) {
+  console.error('Service call failed:', error.message);
+  
+  // Common error scenarios:
+  // - File not found in database
+  // - File doesn't exist on filesystem
+  // - Permission denied
+  // - Integration not loaded
+}
+```
+
+### Validation Checks
+
+Always validate responses before using data:
+
+```javascript
+const response = wsResponse?.response || wsResponse;
+
+// Check response exists
+if (!response) {
+  console.error('No response received');
+  return;
+}
+
+// Check expected structure
+if (!response.items || !Array.isArray(response.items)) {
+  console.error('Invalid response structure:', response);
+  return;
+}
+
+// Check for empty results
+if (response.items.length === 0) {
+  console.warn('No items returned from query');
+  return;
+}
+
+// Validate individual items
+const validItems = response.items.filter(item => {
+  if (!item.path) {
+    console.warn('Item missing path:', item);
+    return false;
+  }
+  return true;
+});
+```
+
+## Best Practices
+
+### 1. Use Appropriate Counts
+
+For slideshow/gallery applications:
+
+```javascript
+// Good: Request enough for smooth operation
+service_data: { count: 100 }
+
+// Bad: Requesting too many can be slow
+service_data: { count: 10000 }  // ❌ Overkill for most use cases
+```
+
+### 2. Filter Efficiently
+
+Apply filters server-side rather than client-side:
+
+```javascript
+// Good: Filter on server
+service_data: {
+  count: 100,
+  folder: '/media/Photo/Favorites',
+  file_type: 'image',
+  favorites_only: true
+}
+
+// Bad: Get all and filter client-side
+service_data: { count: 1000 }  // Then filter 900 items locally
+```
+
+### 3. Handle Missing Data Gracefully
+
+Not all files have complete metadata:
+
+```javascript
+response.items.forEach(item => {
+  // Use optional chaining and defaults
+  const location = item.metadata?.location_city || 'Unknown location';
+  const rating = item.metadata?.rating || 0;
+  const camera = item.metadata?.exif_model || 'Unknown camera';
+});
+```
+
+### 4. Cache Resolved URLs
+
+If you're resolving media paths to signed URLs, cache them:
+
+```javascript
+const urlCache = new Map();
+
+async function getMediaUrl(path) {
+  if (urlCache.has(path)) {
+    return urlCache.get(path);
+  }
+  
+  const url = await resolveMediaPath(path);
+  urlCache.set(path, url);
+  return url;
+}
+```
+
+### 5. Maintain Exclusion Lists
+
+Track files that have been deleted/moved during the session:
+
+```javascript
+class MediaGallery extends LitElement {
+  constructor() {
+    super();
+    this._excludedFiles = new Set();
+  }
+
+  async deleteFile(filePath) {
+    await this.hass.callWS({
+      type: 'call_service',
+      domain: 'media_index',
+      service: 'delete_media',
+      service_data: { file_path: filePath },
+      return_response: true
+    });
+    
+    // Add to exclusion list
+    this._excludedFiles.add(filePath);
+  }
+
+  async refreshMedia() {
+    const wsResponse = await this.hass.callWS({
+      type: 'call_service',
+      domain: 'media_index',
+      service: 'get_random_items',
+      service_data: { count: 100 },
+      return_response: true
+    });
+
+    const response = wsResponse?.response || wsResponse;
+    
+    // Filter out excluded files
+    const items = response.items.filter(item => 
+      !this._excludedFiles.has(item.path)
+    );
+    
+    return items;
+  }
+}
+```
+
+### 6. Update Local State After Mutations
+
+When marking favorites or deleting files, update your local data structures:
+
+```javascript
+async toggleFavorite(item, index) {
+  const newState = !item.is_favorited;
+  
+  // Call service
+  await this.hass.callWS({
+    type: 'call_service',
+    domain: 'media_index',
+    service: 'mark_favorite',
+    service_data: {
+      file_path: item.path,
+      is_favorite: newState
+    },
+    return_response: true
+  });
+
+  // Update local state immediately for responsive UI
+  if (this._items && this._items[index]) {
+    this._items[index].is_favorited = newState;
+    if (this._items[index].metadata) {
+      this._items[index].metadata.is_favorited = newState;
+    }
+  }
+  
+  this.requestUpdate();
+}
+```
+
+## Real-World Example
+
+Here's a complete example from the [ha-media-card](https://github.com/markaggar/ha-media-card) custom Lovelace card:
+
+```javascript
+async _queryMediaIndex(count = 100) {
+  if (!this.hass) {
+    console.error('No hass object available');
+    return null;
+  }
+
+  const folderFilter = this.config?.folder || this.config?.media_path;
+  const configuredMediaType = this.config.media_type || 'all';
+
+  try {
+    const wsResponse = await this.hass.callWS({
+      type: 'call_service',
+      domain: 'media_index',
+      service: 'get_random_items',
+      service_data: {
+        count: count,
+        folder: folderFilter,
+        file_type: configuredMediaType === 'all' ? undefined : configuredMediaType
+      },
+      return_response: true
+    });
+
+    const response = wsResponse?.response || wsResponse;
+
+    if (response && response.items && Array.isArray(response.items)) {
+      console.log(`✅ Received ${response.items.length} items from media_index`);
+      
+      // Filter out excluded files (deleted/moved during session)
+      const filteredItems = response.items.filter(item => {
+        const isExcluded = this._excludedFiles.has(item.path);
+        if (isExcluded) {
+          console.log(`⏭️ Filtering out excluded file: ${item.path}`);
+        }
+        return !isExcluded;
+      });
+      
+      // Transform items to include resolved URLs
+      const items = await Promise.all(filteredItems.map(async (item) => {
+        return {
+          path: item.path || item.file_path,
+          type: item.media_content_type?.startsWith('video') ? 'video' : 'image',
+          metadata: item.metadata || {},
+          entity_id: item.entity_id,
+          _metadata: item  // Store full backend item
+        };
+      }));
+
+      return items;
+    } else {
+      console.error('❌ Invalid response format from media_index:', response);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Failed to query media_index:', error);
+    return null;
+  }
+}
+```
+
+## Integration Requirements
+
+To use the WebSocket API with Media Index:
+
+1. **Home Assistant 2023.7+** - `return_response` feature added
+2. **Media Index integration** - Installed and configured
+3. **WebSocket connection** - Available via `this.hass` in custom cards
+
+## Testing
+
+Test your integration using the Home Assistant Developer Tools:
+
+1. Go to **Developer Tools** → **Services**
+2. Select `media_index.get_random_items`
+3. Enter service data:
+   ```yaml
+   count: 10
+   file_type: image
+   ```
+4. Click **Call Service**
+5. Check response in browser console
+
+## Support
+
+- **Media Index Issues**: [GitHub Issues](https://github.com/markaggar/ha-media-index/issues)
+- **Example Implementation**: [ha-media-card source](https://github.com/markaggar/ha-media-card)
+- **Home Assistant WebSocket API**: [HA Developer Docs](https://developers.home-assistant.io/docs/api/websocket)
