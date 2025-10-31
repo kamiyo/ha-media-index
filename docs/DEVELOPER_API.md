@@ -4,6 +4,7 @@ This guide is for developers integrating with the Media Index custom component v
 
 ## Table of Contents
 - [WebSocket API Overview](#websocket-api-overview)
+- [Multi-Instance Support](#multi-instance-support)
 - [Calling Services via WebSocket](#calling-services-via-websocket)
 - [Service Examples](#service-examples)
 - [Response Handling](#response-handling)
@@ -20,6 +21,136 @@ Media Index services support the `return_response` feature in Home Assistant, al
 - **No polling** - Don't wait for state updates
 - **Rich data** - Return complex objects (arrays, nested data)
 - **Better error handling** - Explicit success/failure responses
+
+## Multi-Instance Support
+
+**New in v1.1+**: Media Index supports multiple integration instances, allowing you to index different media libraries separately (e.g., local photos and cloud-synced photos).
+
+### Why Multiple Instances?
+
+- **Separate libraries** - Keep different media sources isolated
+- **Different scan settings** - Each instance can have its own watched folders and scan schedules
+- **Independent caches** - Each instance maintains its own SQLite database
+- **Targeted queries** - Route service calls to specific instances
+
+### Routing Service Calls
+
+When you have multiple Media Index instances, use the `target` parameter to specify which instance to query:
+
+```javascript
+const wsResponse = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'get_random_items',
+  service_data: {
+    count: 100,
+    folder: '/media/Photo/OneDrive'
+  },
+  target: {
+    entity_id: 'sensor.media_index_media_photo_onedrive_total_files'
+  },
+  return_response: true
+});
+```
+
+**Without a target**, the service will default to the first configured instance (backward compatibility).
+
+### Identifying Instances
+
+Each instance creates a sensor entity. Use the entity ID to target specific instances:
+
+```javascript
+// Example: Two instances configured
+const instances = {
+  local: 'sensor.media_index_media_photo_photolibrary_total_files',
+  cloud: 'sensor.media_index_media_photo_onedrive_total_files'
+};
+
+// Query local library
+const localItems = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'get_random_items',
+  service_data: { count: 50 },
+  target: { entity_id: instances.local },
+  return_response: true
+});
+
+// Query cloud library
+const cloudItems = await this.hass.callWS({
+  type: 'call_service',
+  domain: 'media_index',
+  service: 'get_random_items',
+  service_data: { count: 50 },
+  target: { entity_id: instances.cloud },
+  return_response: true
+});
+```
+
+### Services Supporting Multi-Instance
+
+**All Media Index services** support the `target` parameter:
+
+- ✅ `get_random_items`
+- ✅ `get_file_metadata`
+- ✅ `mark_favorite`
+- ✅ `delete_media`
+- ✅ `mark_for_edit`
+- ✅ `restore_edited_files`
+- ✅ `geocode_file`
+- ✅ `scan_folder`
+
+### Configuration in Custom Cards
+
+For custom Lovelace cards, add a configuration option for the target entity:
+
+```javascript
+// Card config schema
+static getConfigElement() {
+  return {
+    media_index: {
+      enabled: true,
+      entity_id: 'sensor.media_index_media_photo_onedrive_total_files'
+    }
+  };
+}
+
+// Use in service calls
+async queryMedia() {
+  const wsCall = {
+    type: 'call_service',
+    domain: 'media_index',
+    service: 'get_random_items',
+    service_data: { count: 100 },
+    return_response: true
+  };
+
+  // Add target if entity is configured
+  if (this.config.media_index?.entity_id) {
+    wsCall.target = {
+      entity_id: this.config.media_index.entity_id
+    };
+  }
+
+  const wsResponse = await this.hass.callWS(wsCall);
+  const response = wsResponse?.response || wsResponse;
+  return response.items;
+}
+```
+
+### Testing Multi-Instance Routing
+
+Verify service calls are routing to the correct instance:
+
+1. **Developer Tools** → **Services**
+2. Select `media_index.get_random_items`
+3. Add target selector:
+   ```yaml
+   count: 1
+   target:
+     entity_id: sensor.media_index_media_photo_onedrive_total_files
+   ```
+4. Check returned file paths match the expected instance's base folder
 
 ## Calling Services via WebSocket
 
