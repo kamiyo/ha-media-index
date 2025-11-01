@@ -1,0 +1,9 @@
+{
+  "name": "Media Index",
+  "content_in_root": false,
+  "filename": "media_index",
+  "homeassistant": "2021.12.0",
+  "render_readme": true,
+  "zip_release": true,
+  "hide_default_branch": false
+}
