@@ -62,6 +62,8 @@ A custom Home Assistant integration that indexes media files (images and videos)
 4. Enter your base media folder path (e.g., `/media/Photos`)
 5. Configure optional settings (watched folders, EXIF extraction, geocoding)
 
+💡 **Multi-Instance Support:** You can add multiple instances with different base folders (e.g., one for Photos, one for Videos) by repeating this process with different folder paths.
+
 ### Watched Folders Configuration
 
 **⚠️ IMPORTANT: Watched folders must be specified as RELATIVE paths from your base folder.**
@@ -292,26 +294,13 @@ Import ratings from an exported file and apply to matching files.
 
 
 
-## Development
+## Developer Integration
 
-### Deployment Script
+For developers creating cards or integrations that consume Media Index services:
 
-Use the included deployment script for development:
-
-```powershell
-cd ha-media-index
-.\scripts\deploy-media-index.ps1 `
-    -VerifyEntity "sensor.media_index_..._total_files" `
-    -DumpErrorLogOnFail `
-    -AlwaysRestart
-```
-
-This script:
-1. Copies files to HA `custom_components/`
-2. Validates HA configuration
-3. Restarts Home Assistant
-4. Verifies integration loaded successfully
-5. Captures error logs on failure
+- **Service Documentation**: See [SERVICES.md](SERVICES.md) for complete API reference
+- **WebSocket API**: See [docs/DEVELOPER_API.md](docs/DEVELOPER_API.md) for advanced WebSocket usage
+- **Multi-Instance Support**: All services support target selectors for multiple instances
 
 ## Contributing
 
