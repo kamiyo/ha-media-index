@@ -126,7 +126,7 @@ service: media_index.restore_edited_files
 
 ## All Available Services
 
-The integration provides additional services for advanced use cases and Media Card integration. See [SERVICES.md](SERVICES.md) for complete documentation of all available services including:
+The integration provides additional services for advanced use cases and Media Card integration. See [SERVICES.md](docs/SERVICES.md) for complete documentation of all available services including:
 
 - `get_random_items` - Random media selection (used by Media Card)
 - `mark_favorite` - Toggle favorite status
@@ -298,8 +298,8 @@ Import ratings from an exported file and apply to matching files.
 
 For developers creating cards or integrations that consume Media Index services:
 
-- **Service Documentation**: See [SERVICES.md](SERVICES.md) for complete API reference
-- **WebSocket API**: See [docs/DEVELOPER_API.md](docs/DEVELOPER_API.md) for advanced WebSocket usage
+- **Service Documentation**: See [SERVICES.md](docs/SERVICES.md) for complete API reference
+- **WebSocket API**: See [docs/DEVELOPER_API.md](docs/DEVELOPER_API.md) for WebSocket usage
 - **Multi-Instance Support**: All services support target selectors for multiple instances
 
 ## Contributing
