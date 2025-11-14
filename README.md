@@ -29,7 +29,7 @@ A custom Home Assistant integration that indexes media files (images and videos)
   - ⚠️ **Videos**: Database-only (file writes disabled - see limitations below)
 - **Database tracking** of favorite status
 
-### 🎲 Random & Sequential Media Services
+### 🎲 Random & Sequential Media Selection
 - **Smart random selection** with exclusion tracking
 - **Ordered selection** by date, path, filename ascending or descending
 - **Filter by** folder, file type, date range, favorites
