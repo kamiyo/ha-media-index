@@ -57,6 +57,7 @@ PLATFORMS: list[Platform] = [Platform.SENSOR]
 SERVICE_GET_RANDOM_ITEMS_SCHEMA = vol.Schema({
     vol.Optional("count", default=10): cv.positive_int,
     vol.Optional("folder"): cv.string,
+    vol.Optional("recursive", default=True): cv.boolean,
     vol.Optional("file_type"): vol.In(["image", "video"]),
     vol.Optional("date_from"): cv.string,
     vol.Optional("date_to"): cv.string,
@@ -337,6 +338,7 @@ def _register_services(hass: HomeAssistant):
         items = await cache_manager.get_random_files(
             count=call.data.get("count", 10),
             folder=call.data.get("folder"),
+            recursive=call.data.get("recursive", True),
             file_type=call.data.get("file_type"),
             date_from=call.data.get("date_from"),
             date_to=call.data.get("date_to"),

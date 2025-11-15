@@ -626,6 +626,7 @@ class CacheManager:
         self,
         count: int = 10,
         folder: str | None = None,
+        recursive: bool = True,
         file_type: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
@@ -640,6 +641,7 @@ class CacheManager:
         Args:
             count: Number of random files to return
             folder: Filter by folder path (supports wildcards with %)
+            recursive: If False, only match exact folder (no subfolders)
             file_type: Filter by file type ('image' or 'video')
             date_from: Filter by date >= this value (YYYY-MM-DD)
             date_to: Filter by date <= this value (YYYY-MM-DD)
@@ -684,8 +686,14 @@ class CacheManager:
             params = [threshold_time]
             
             if folder:
-                new_files_query += " AND LOWER(m.folder) LIKE LOWER(?)"
-                params.append(f"{folder}%")
+                if recursive:
+                    # Recursive: match folder and all subfolders
+                    new_files_query += " AND LOWER(m.folder) LIKE LOWER(?)"
+                    params.append(f"{folder}%")
+                else:
+                    # Non-recursive: exact folder match only
+                    new_files_query += " AND LOWER(m.folder) = LOWER(?)"
+                    params.append(folder)
             
             if file_type:
                 new_files_query += " AND m.file_type = ?"
@@ -730,6 +738,7 @@ class CacheManager:
                     count=remaining,
                     exclude_ids=exclude_ids,
                     folder=folder,
+                    recursive=recursive,
                     file_type=file_type,
                     date_from=date_from,
                     date_to=date_to
@@ -772,8 +781,14 @@ class CacheManager:
             
             if folder:
                 # Use case-insensitive matching for folder paths (handles /media/Photo vs /media/photo)
-                query += " AND LOWER(m.folder) LIKE LOWER(?)"
-                params.append(f"{folder}%")
+                if recursive:
+                    # Recursive: match folder and all subfolders
+                    query += " AND LOWER(m.folder) LIKE LOWER(?)"
+                    params.append(f"{folder}%")
+                else:
+                    # Non-recursive: exact folder match only
+                    query += " AND LOWER(m.folder) = LOWER(?)"
+                    params.append(folder)
             
             if file_type:
                 query += " AND m.file_type = ?"
@@ -811,6 +826,7 @@ class CacheManager:
         count: int,
         exclude_ids: list[int],
         folder: str | None = None,
+        recursive: bool = True,
         file_type: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None
@@ -821,6 +837,7 @@ class CacheManager:
             count: Number of files to return
             exclude_ids: List of file IDs to exclude
             folder: Optional folder filter
+            recursive: If False, only match exact folder (no subfolders)
             file_type: Optional file type filter
             date_from: Optional date from filter
             date_to: Optional date to filter
@@ -861,8 +878,14 @@ class CacheManager:
                 params.extend(safe_exclude_ids)
         
         if folder:
-            query += " AND LOWER(m.folder) LIKE LOWER(?)"
-            params.append(f"{folder}%")
+            if recursive:
+                # Recursive: match folder and all subfolders
+                query += " AND LOWER(m.folder) LIKE LOWER(?)"
+                params.append(f"{folder}%")
+            else:
+                # Non-recursive: exact folder match only
+                query += " AND LOWER(m.folder) = LOWER(?)"
+                params.append(folder)
         
         if file_type:
             query += " AND m.file_type = ?"
