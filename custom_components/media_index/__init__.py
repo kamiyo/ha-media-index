@@ -76,11 +76,14 @@ SERVICE_GET_ORDERED_FILES_SCHEMA = vol.Schema({
 }, extra=vol.ALLOW_EXTRA)
 
 SERVICE_GET_FILE_METADATA_SCHEMA = vol.Schema({
-    vol.Required("file_path"): cv.string,
+    vol.Optional("file_path"): cv.string,
+    vol.Optional("media_source_uri"): cv.string,
 }, extra=vol.ALLOW_EXTRA)
 
 SERVICE_GEOCODE_FILE_SCHEMA = vol.Schema({
     vol.Optional("file_id"): cv.positive_int,
+    vol.Optional("file_path"): cv.string,
+    vol.Optional("media_source_uri"): cv.string,
     vol.Optional("latitude"): vol.Coerce(float),
     vol.Optional("longitude"): vol.Coerce(float),
 }, extra=vol.ALLOW_EXTRA)
@@ -474,7 +477,26 @@ def _register_services(hass: HomeAssistant):
         """Handle get_file_metadata service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
-        file_path = call.data["file_path"]
+        config = hass.data[DOMAIN][entry_id]["config"]
+        
+        # Get file_path from either file_path parameter or media_source_uri
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
+        
+        if not file_path and media_source_uri:
+            # Convert URI to path
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {"error": str(e)}
+        
+        if not file_path:
+            return {"error": "Either file_path or media_source_uri required"}
         
         metadata = await cache_manager.get_file_by_path(file_path)
         
@@ -489,6 +511,7 @@ def _register_services(hass: HomeAssistant):
         """Handle geocode_file service call for progressive geocoding."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         geocode_service = hass.data[DOMAIN][entry_id].get("geocode_service")
         
         if not geocode_service:
@@ -496,8 +519,28 @@ def _register_services(hass: HomeAssistant):
             return {"error": "Geocoding not enabled"}
         
         file_id = call.data.get("file_id")
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
         lat = call.data.get("latitude")
         lon = call.data.get("longitude")
+        
+        # Convert media_source_uri to file_path if provided
+        if not file_path and media_source_uri:
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {"error": str(e)}
+        
+        # Get file_id from file_path if provided but file_id not given
+        if file_path and not file_id:
+            file_data = await cache_manager.get_file_by_path(file_path)
+            if file_data:
+                file_id = file_data.get("id")
         
         # Get coordinates from file_id if not provided
         if file_id and not (lat and lon):
@@ -514,7 +557,7 @@ def _register_services(hass: HomeAssistant):
             lon = exif_data["longitude"]
         
         if not (lat and lon):
-            return {"error": "Either file_id or latitude/longitude required"}
+            return {"error": "Either file_id, file_path, media_source_uri, or latitude/longitude required"}
         
         _LOGGER.info("Progressive geocoding request for (%s, %s)", lat, lon)
         
