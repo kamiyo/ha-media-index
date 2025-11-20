@@ -280,12 +280,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize watcher
     watcher = MediaWatcher(scanner, cache_manager, hass)
     
+    # Construct media_source_uri automatically if not configured
+    # This ensures v1.4+ upgrade path works seamlessly without config changes
+    config = {**entry.data, **entry.options}
+    base_folder = config.get(CONF_BASE_FOLDER, "/media")
+    media_source_uri = config.get(CONF_MEDIA_SOURCE_URI)
+    
+    if not media_source_uri:
+        # Auto-construct: media-source://media_source + base_folder
+        # Example: /media/Photo/PhotoLibrary -> media-source://media_source/media/Photo/PhotoLibrary
+        media_source_uri = f"media-source://media_source{base_folder}"
+        config[CONF_MEDIA_SOURCE_URI] = media_source_uri
+        _LOGGER.info("Auto-constructed media_source_uri: %s (from base_folder: %s)", media_source_uri, base_folder)
+    else:
+        _LOGGER.debug("Using configured media_source_uri: %s", media_source_uri)
+    
     # Store instances
     hass.data[DOMAIN][entry.entry_id]["cache_manager"] = cache_manager
     hass.data[DOMAIN][entry.entry_id]["scanner"] = scanner
     hass.data[DOMAIN][entry.entry_id]["watcher"] = watcher
     hass.data[DOMAIN][entry.entry_id]["geocode_service"] = geocode_service
-    hass.data[DOMAIN][entry.entry_id]["config"] = {**entry.data, **entry.options}
+    hass.data[DOMAIN][entry.entry_id]["config"] = config
     
     # Set up platforms BEFORE starting scan so sensor exists
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

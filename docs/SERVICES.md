@@ -315,6 +315,24 @@ The Media Index services integrate seamlessly with the [Home Assistant Media Car
 ## v1.4 URI Support
 
 ### Complete Media-Source URI Integration
+
+**Automatic URI Construction (v1.4+)**: Media Index automatically constructs `media_source_uri` from your `base_folder` if not explicitly configured. This provides seamless v1.4 upgrade without requiring configuration changes.
+
+**Example automatic construction:**
+- Base folder: `/media/Photo/PhotoLibrary`
+- Auto-constructed URI: `media-source://media_source/media/Photo/PhotoLibrary`
+
+**Explicit configuration (optional):**
+```yaml
+sensor:
+  - platform: media_index
+    name: "PhotoLibrary"
+    base_folder: "/media/Photo/PhotoLibrary"
+    media_source_uri: "media-source://media_source/media/Photo/PhotoLibrary"  # Optional
+```
+
+### Features
+
 - 🔗 **All file-based services** now accept `media_source_uri` parameter as alternative to `file_path`
   - `get_file_metadata`
   - `mark_favorite`
