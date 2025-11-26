@@ -422,7 +422,7 @@ def _register_services(hass: HomeAssistant):
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         config = hass.data[DOMAIN][entry_id]["config"]
         
-        _LOGGER.debug("get_random_items: entry_id=%s, call.data=%s", entry_id, call.data)
+        # Debug logging removed to prevent excessive logs during slideshow
         
         # Convert folder URI to path if needed
         folder = call.data.get("folder")
@@ -464,7 +464,7 @@ def _register_services(hass: HomeAssistant):
                     item["media_source_uri"] = ""
         
         result = {"items": items}
-        _LOGGER.debug("Retrieved %d random items from entry_id %s", len(items), entry_id)
+        # Debug: Retrieved X random items (logging removed)
         return result
     
     async def handle_get_ordered_files(call):
@@ -473,7 +473,7 @@ def _register_services(hass: HomeAssistant):
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         config = hass.data[DOMAIN][entry_id]["config"]
         
-        _LOGGER.debug("get_ordered_files: entry_id=%s, call.data=%s", entry_id, call.data)
+        # Debug logging removed to prevent excessive logs during slideshow
         
         # Convert folder URI to path if needed
         folder = call.data.get("folder")
@@ -512,7 +512,7 @@ def _register_services(hass: HomeAssistant):
                     item["media_source_uri"] = ""
         
         result = {"items": items}
-        _LOGGER.debug("Retrieved %d ordered items from entry_id %s", len(items), entry_id)
+        # Debug: Retrieved X ordered items (logging removed)
         return result
     
     async def handle_get_file_metadata(call):
@@ -669,12 +669,12 @@ def _register_services(hass: HomeAssistant):
         
         is_favorite = call.data.get("is_favorite", True)
         
-        _LOGGER.debug("🔍 mark_favorite called: path='%s', is_favorite=%s", file_path, is_favorite)
+        # Debug logging removed to prevent excessive logs during slideshow
         
         try:
             # Update database
             db_success = await cache_manager.update_favorite(file_path, is_favorite)
-            _LOGGER.debug("🔍 Database update result: %s", db_success)
+            # Debug: Database update result (logging removed)
             
             # Write rating to file metadata
             # Rating 5 = favorite, Rating 0 = unfavorited
@@ -682,20 +682,20 @@ def _register_services(hass: HomeAssistant):
             
             # Determine file type to use appropriate parser
             file_ext = Path(file_path).suffix.lower()
-            _LOGGER.debug("🔍 File extension: %s, rating to write: %d", file_ext, rating)
+            # Debug: File extension, rating to write (logging removed)
             
             if file_ext in {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.heic'}:
-                _LOGGER.debug("🔍 Calling ExifParser.write_rating for: %s", file_path)
+                # Debug: Calling ExifParser.write_rating (logging removed)
                 success = await hass.async_add_executor_job(
                     ExifParser.write_rating, file_path, rating
                 )
-                _LOGGER.debug("🔍 ExifParser.write_rating result: %s", success)
+                # Debug: ExifParser.write_rating result (logging removed)
             elif file_ext in {'.mp4', '.m4v', '.mov'}:
-                _LOGGER.debug("🔍 Calling VideoMetadataParser.write_rating for: %s", file_path)
+                # Debug: Calling VideoMetadataParser.write_rating (logging removed)
                 success = await hass.async_add_executor_job(
                     VideoMetadataParser.write_rating, file_path, rating
                 )
-                _LOGGER.debug("🔍 VideoMetadataParser.write_rating result: %s", success)
+                # Debug: VideoMetadataParser.write_rating result (logging removed)
             else:
                 success = False
                 _LOGGER.warning("Unsupported file type for rating: %s", file_ext)
