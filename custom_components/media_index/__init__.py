@@ -532,7 +532,6 @@ def _register_services(hass: HomeAssistant):
             
             try:
                 file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
-                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
             except ValueError as e:
                 _LOGGER.error("Failed to convert URI to path: %s", e)
                 return {"error": str(e)}
@@ -543,7 +542,6 @@ def _register_services(hass: HomeAssistant):
         metadata = await cache_manager.get_file_by_path(file_path)
         
         if metadata:
-            _LOGGER.info("Retrieved metadata for: %s", file_path)
             return metadata
         else:
             _LOGGER.warning("File not found in index: %s", file_path)
@@ -573,7 +571,6 @@ def _register_services(hass: HomeAssistant):
             
             try:
                 file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
-                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
             except ValueError as e:
                 _LOGGER.error("Failed to convert URI to path: %s", e)
                 return {"error": str(e)}
