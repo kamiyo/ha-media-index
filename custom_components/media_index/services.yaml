@@ -154,13 +154,6 @@ get_file_metadata:
       example: "media-source://media_source/media/photo/Photos/2023/vacation.jpg"
       selector:
         text:
-    media_source_uri:
-      name: Media Source URI
-      description: Media-source URI (use either this OR file_path)
-      required: false
-      example: "media-source://media_source/media/photo/Photos/2023/vacation.jpg"
-      selector:
-        text:
 
 geocode_file:
   name: Geocode File
