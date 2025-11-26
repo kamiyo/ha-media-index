@@ -1,5 +1,4 @@
 """Media Index integration for Home Assistant."""
-import asyncio
 import logging
 import os
 from datetime import timedelta
@@ -27,6 +26,7 @@ from .const import (
     DEFAULT_ENABLE_WATCHER,
     DEFAULT_GEOCODE_ENABLED,
     DEFAULT_GEOCODE_NATIVE_LANGUAGE,
+    DEFAULT_SCAN_ON_STARTUP,
     DEFAULT_SCAN_SCHEDULE,
     SCAN_SCHEDULE_STARTUP_ONLY,
     SCAN_SCHEDULE_HOURLY,
@@ -305,18 +305,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Set up platforms BEFORE starting scan so sensor exists
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
-    # Trigger initial scan if configured
+    # Trigger initial scan AFTER HA has fully started (not during setup)
     config = {**entry.data, **entry.options}
     base_folder = config.get(CONF_BASE_FOLDER, "/media")
     watched_folders = config.get(CONF_WATCHED_FOLDERS, [])
     
-    if config.get(CONF_SCAN_ON_STARTUP, True):
-        _LOGGER.info("Starting initial scan of %s (watched: %s)", base_folder, watched_folders)
+    if config.get(CONF_SCAN_ON_STARTUP, DEFAULT_SCAN_ON_STARTUP):
+        async def _trigger_startup_scan(_event=None):
+            """Trigger scan after HA has fully started."""
+            _LOGGER.info("Home Assistant started - beginning initial scan of %s (watched: %s)", base_folder, watched_folders)
+            hass.async_create_task(
+                scanner.scan_folder(base_folder, watched_folders),
+                name=f"media_index_scan_{entry.entry_id}"
+            )
         
-        # Start scan as background task
-        hass.async_create_task(
-            scanner.scan_folder(base_folder, watched_folders)
-        )
+        # Listen for HA start event to trigger scan
+        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _trigger_startup_scan)
+        _LOGGER.info("Startup scan scheduled to run after Home Assistant finishes starting")
+    else:
+        _LOGGER.info("Startup scan disabled by configuration")
     
     # Start file system watcher if enabled
     if config.get(CONF_ENABLE_WATCHER, DEFAULT_ENABLE_WATCHER):

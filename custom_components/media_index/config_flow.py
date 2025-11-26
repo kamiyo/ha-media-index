@@ -132,15 +132,11 @@ class MediaIndexConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return MediaIndexOptionsFlow(config_entry)
+        return MediaIndexOptionsFlow()
 
 
 class MediaIndexOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for Media Index."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
