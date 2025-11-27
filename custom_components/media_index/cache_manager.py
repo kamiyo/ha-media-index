@@ -630,6 +630,7 @@ class CacheManager:
         file_type: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        favorites_only: bool = False,
         priority_new_files: bool = False,
         new_files_threshold_seconds: int = 3600
     ) -> list[dict]:
@@ -643,8 +644,9 @@ class CacheManager:
             folder: Filter by folder path (supports wildcards with %)
             recursive: If False, only match exact folder (no subfolders)
             file_type: Filter by file type ('image' or 'video')
-            date_from: Filter by date >= this value (YYYY-MM-DD)
-            date_to: Filter by date <= this value (YYYY-MM-DD)
+            date_from: Filter by date >= this value (YYYY-MM-DD). Uses EXIF date_taken if available, falls back to created_time.
+            date_to: Filter by date <= this value (YYYY-MM-DD). Uses EXIF date_taken if available, falls back to created_time.
+            favorites_only: If True, only return files marked as favorites
             priority_new_files: If True, prioritize recently scanned files
             new_files_threshold_seconds: Threshold in seconds for "new" files (default 1 hour)
             
@@ -699,13 +701,34 @@ class CacheManager:
                 new_files_query += " AND m.file_type = ?"
                 params.append(file_type.lower())
             
-            if date_from:
-                new_files_query += " AND DATE(m.modified_time, 'unixepoch') >= ?"
-                params.append(str(date_from))
+            if favorites_only:
+                new_files_query += " AND e.is_favorited = 1"
             
-            if date_to:
-                new_files_query += " AND DATE(m.modified_time, 'unixepoch') <= ?"
-                params.append(str(date_to))
+            # Date filtering: null means "no limit" in that direction
+            # Use EXIF date_taken if available, fallback to created_time
+            if date_from is not None:
+                # Validate date_from is a valid date string using datetime.strptime
+                try:
+                    from datetime import datetime
+                    date_from_str = str(date_from) if not isinstance(date_from, str) else date_from
+                    # Proper validation with datetime.strptime - prevents invalid dates like 2024-13-45
+                    datetime.strptime(date_from_str, "%Y-%m-%d")
+                    new_files_query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') >= ?"
+                    params.append(date_from_str)
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning("Invalid date_from parameter: %s - %s", date_from, e)
+            
+            if date_to is not None:
+                # Validate date_to is a valid date string using datetime.strptime
+                try:
+                    from datetime import datetime
+                    date_to_str = str(date_to) if not isinstance(date_to, str) else date_to
+                    # Proper validation with datetime.strptime - prevents invalid dates like 2024-13-45
+                    datetime.strptime(date_to_str, "%Y-%m-%d")
+                    new_files_query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') <= ?"
+                    params.append(date_to_str)
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
             
             # V5 IMPROVEMENT: Get ALL recent files, then randomly sample
             # This ensures even distribution - all recent files have equal chance
@@ -713,20 +736,19 @@ class CacheManager:
             new_files_query += " ORDER BY m.last_scanned DESC"
             # Note: No LIMIT here - we get all recent files, then sample below
             
-            _LOGGER.debug("Priority queue query (all recent): %s with params: %s", new_files_query, params)
+            # Debug logging removed to prevent excessive logs during slideshow
             
             async with self._db.execute(new_files_query, tuple(params)) as cursor:
                 new_files_rows = await cursor.fetchall()
             
             all_new_files = [dict(row) for row in new_files_rows]
-            _LOGGER.debug("Found %d total recent files (within %d sec threshold)", 
-                         len(all_new_files), new_files_threshold_seconds)
+            # Debug: Found X total recent files (logging removed)
             
             # Randomly sample from recent files (up to count requested)
             import random
             if len(all_new_files) > count:
                 new_files = random.sample(all_new_files, count)
-                _LOGGER.debug("Randomly sampled %d from %d recent files", count, len(all_new_files))
+                # Debug: Randomly sampled X from Y recent files (logging removed)
             else:
                 new_files = all_new_files
             
@@ -741,7 +763,8 @@ class CacheManager:
                     recursive=recursive,
                     file_type=file_type,
                     date_from=date_from,
-                    date_to=date_to
+                    date_to=date_to,
+                    favorites_only=favorites_only
                 )
                 result = new_files + random_files
             else:
@@ -752,8 +775,7 @@ class CacheManager:
                 item['has_coordinates'] = item.get('latitude') is not None and item.get('longitude') is not None
                 item['is_geocoded'] = item.get('location_city') is not None
             
-            _LOGGER.debug("Priority queue returned %d new files + %d random files", 
-                         len(new_files), len(result) - len(new_files))
+            # Debug: Priority queue returned X new files + Y random files (logging removed)
             return result
         
         else:
@@ -794,18 +816,39 @@ class CacheManager:
                 query += " AND m.file_type = ?"
                 params.append(file_type.lower())
             
-            if date_from:
-                query += " AND DATE(m.modified_time, 'unixepoch') >= ?"
-                params.append(str(date_from))
+            if favorites_only:
+                query += " AND e.is_favorited = 1"
             
-            if date_to:
-                query += " AND DATE(m.modified_time, 'unixepoch') <= ?"
-                params.append(str(date_to))
+            # Date filtering: null means "no limit" in that direction
+            # Use EXIF date_taken if available, fallback to created_time
+            if date_from is not None:
+                # Validate date_from is a valid date string
+                try:
+                    date_from_str = str(date_from) if not isinstance(date_from, str) else date_from
+                    # Quick validation that it looks like a date (YYYY-MM-DD format)
+                    if len(date_from_str) != 10 or date_from_str.count('-') != 2:
+                        raise ValueError(f"Invalid date_from format: {date_from_str}")
+                    query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') >= ?"
+                    params.append(date_from_str)
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning("Invalid date_from parameter: %s - %s", date_from, e)
+            
+            if date_to is not None:
+                # Validate date_to is a valid date string
+                try:
+                    date_to_str = str(date_to) if not isinstance(date_to, str) else date_to
+                    # Quick validation that it looks like a date (YYYY-MM-DD format)
+                    if len(date_to_str) != 10 or date_to_str.count('-') != 2:
+                        raise ValueError(f"Invalid date_to format: {date_to_str}")
+                    query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') <= ?"
+                    params.append(date_to_str)
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
             
             query += " ORDER BY RANDOM() LIMIT ?"
             params.append(int(count))
             
-            _LOGGER.debug("Query: %s with params: %s", query, params)
+            # Debug logging removed to prevent excessive logs during slideshow
             
             async with self._db.execute(query, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
@@ -829,7 +872,8 @@ class CacheManager:
         recursive: bool = True,
         file_type: str | None = None,
         date_from: str | None = None,
-        date_to: str | None = None
+        date_to: str | None = None,
+        favorites_only: bool = False
     ) -> list[dict]:
         """Get random files excluding specified IDs (helper for priority queue).
         
@@ -891,15 +935,34 @@ class CacheManager:
             query += " AND m.file_type = ?"
             params.append(file_type.lower())
         
-        if date_from:
-            query += " AND DATE(m.modified_time, 'unixepoch') >= ?"
-            params.append(str(date_from))
+        if favorites_only:
+            query += " AND e.is_favorited = 1"
         
-        if date_to:
-            query += " AND DATE(m.modified_time, 'unixepoch') <= ?"
-            params.append(str(date_to))
+        # Date filtering: null means "no limit" in that direction
+        # Use EXIF date_taken if available, fallback to created_time
+        if date_from is not None:
+            # Validate date_from is a valid date string
+            try:
+                from datetime import datetime
+                date_from_str = str(date_from) if not isinstance(date_from, str) else date_from
+                datetime.strptime(date_from_str, "%Y-%m-%d")
+                query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') >= ?"
+                params.append(date_from_str)
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning("Invalid date_from parameter: %s - %s", date_from, e)
         
-        query += " ORDER BY RANDOM() LIMIT ?"
+        if date_to is not None:
+            # Validate date_to is a valid date string
+            try:
+                from datetime import datetime
+                date_to_str = str(date_to) if not isinstance(date_to, str) else date_to
+                datetime.strptime(date_to_str, "%Y-%m-%d")
+                query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') <= ?"
+                params.append(date_to_str)
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
+            
+            query += " ORDER BY RANDOM() LIMIT ?"
         params.append(int(count))
         
         async with self._db.execute(query, tuple(params)) as cursor:
@@ -989,7 +1052,7 @@ class CacheManager:
         query += f" ORDER BY {sort_field} {direction} LIMIT ?"
         params.append(int(count))
         
-        _LOGGER.debug("Ordered query: %s with params: %s", query, params)
+        # Debug logging removed to prevent excessive logs during slideshow
         
         async with self._db.execute(query, tuple(params)) as cursor:
             rows = await cursor.fetchall()
@@ -1101,13 +1164,11 @@ class CacheManager:
                WHERE file_id = (SELECT id FROM media_files WHERE path = ?)""",
             (favorite_value, rating_value, file_path)
         ) as cursor:
-            exif_rows_affected = cursor.rowcount
+            pass  # Context manager ensures proper cleanup
         
         await self._db.commit()
         
         if rows_affected > 0:
-            _LOGGER.info("Updated favorite status for %s: %s (media_files=%d, exif_data=%d rows)", 
-                        file_path, is_favorite, rows_affected, exif_rows_affected)
             return True
         else:
             _LOGGER.warning("File not found in database: %s", file_path)
@@ -1148,7 +1209,6 @@ class CacheManager:
         )
         
         await self._db.commit()
-        _LOGGER.info("Deleted file from database: %s", file_path)
         return True
     
     async def record_file_move(

@@ -1,4 +1,5 @@
 """Media file scanner for Home Assistant."""
+import asyncio
 import os
 import logging
 from datetime import datetime
@@ -188,14 +189,13 @@ class MediaScanner:
                         # Store EXIF data in exif_data table
                         if exif_data and file_id > 0:
                             await self.cache.add_exif_data(file_id, exif_data)
-                            _LOGGER.debug("Extracted metadata for %s: %s", metadata['filename'], metadata['file_type'])
+                            # Debug logging removed to prevent excessive logs
                             
                             # Set is_favorited based on XMP:Rating (5 stars = favorite, < 5 = not favorite)
                             rating = exif_data.get('rating') or 0
                             is_favorite = rating >= 5
                             await self.cache.update_favorite(metadata['path'], is_favorite)
-                            if is_favorite:
-                                _LOGGER.debug("Marked %s as favorite (rating=%d)", metadata['filename'], rating)
+                            # Favorite marking logged in summary only
                         elif metadata['file_type'] == 'video' and file_id > 0:
                             # Extract video metadata after adding file
                             if self.hass:
@@ -216,16 +216,7 @@ class MediaScanner:
                             # Check if this file already has geocoded location
                             already_geocoded = await self.cache.has_geocoded_location(file_id)
                             
-                            _LOGGER.debug(
-                                "Geocoding check for %s: enabled=%s, service=%s, has_coords=%s, already_geocoded=%s (lat=%s, lon=%s)",
-                                metadata['filename'],
-                                self.enable_geocoding,
-                                self.geocode_service is not None,
-                                has_coords,
-                                already_geocoded,
-                                exif_data.get('latitude'),
-                                exif_data.get('longitude')
-                            )
+                            # Debug logging removed to prevent excessive logs during scans
                             
                             if (self.enable_geocoding and 
                                 self.geocode_service and 
@@ -235,23 +226,14 @@ class MediaScanner:
                                 lat = exif_data['latitude']
                                 lon = exif_data['longitude']
                                 
-                                _LOGGER.info("Starting geocode for %s at (%s, %s)", metadata['filename'], lat, lon)
-                                
                                 # Check geocode cache first
                                 cached_location = await self.cache.get_geocode_cache(lat, lon)
                                 
                                 if cached_location:
                                     # Use cached location
                                     await self.cache.update_exif_location(file_id, cached_location)
-                                    _LOGGER.info(
-                                        "Cache HIT for (%s, %s): %s, %s", 
-                                        round(lat, 3), round(lon, 3),
-                                        cached_location.get('location_city'),
-                                        cached_location.get('location_country')
-                                    )
                                 else:
                                     # Fetch from geocoding service
-                                    _LOGGER.info("Cache MISS for (%s, %s) - calling Nominatim API", round(lat, 3), round(lon, 3))
                                     location_data = await self.geocode_service.reverse_geocode(lat, lon)
                                     
                                     if location_data:
@@ -259,16 +241,13 @@ class MediaScanner:
                                         await self.cache.add_geocode_cache(lat, lon, location_data)
                                         # Update EXIF record
                                         await self.cache.update_exif_location(file_id, location_data)
-                                        _LOGGER.info(
-                                            "Geocoded (%s, %s) to: %s, %s, %s",
-                                            lat, lon,
-                                            location_data.get('location_name'),
-                                            location_data.get('location_city'),
-                                            location_data.get('location_country')
-                                        )
+                        
+                        # Yield control back to event loop every 10 files to prevent blocking startup
+                        if files_added % 10 == 0:
+                            await asyncio.sleep(0)
                         
                         if files_added % 100 == 0:
-                            _LOGGER.debug("Indexed %d files so far...", files_added)
+                            _LOGGER.info("Scan progress: indexed %d files so far...", files_added)
                     
                     except Exception as err:
                         _LOGGER.error("Failed to add file to cache: %s - %s", metadata.get("path"), err)
@@ -356,7 +335,7 @@ class MediaScanner:
                         if location_data:
                             await self.cache.update_exif_location(file_id, location_data)
             
-            _LOGGER.info("Successfully indexed file: %s", file_path)
+            # Success - log removed to prevent excessive logging
             return True
             
         except Exception as e:

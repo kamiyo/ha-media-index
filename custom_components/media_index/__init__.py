@@ -1,5 +1,4 @@
 """Media Index integration for Home Assistant."""
-import asyncio
 import logging
 import os
 from datetime import timedelta
@@ -17,6 +16,7 @@ import homeassistant.helpers.config_validation as cv
 from .const import (
     DOMAIN,
     CONF_BASE_FOLDER,
+    CONF_MEDIA_SOURCE_URI,
     CONF_WATCHED_FOLDERS,
     CONF_SCAN_ON_STARTUP,
     CONF_SCAN_SCHEDULE,
@@ -26,6 +26,7 @@ from .const import (
     DEFAULT_ENABLE_WATCHER,
     DEFAULT_GEOCODE_ENABLED,
     DEFAULT_GEOCODE_NATIVE_LANGUAGE,
+    DEFAULT_SCAN_ON_STARTUP,
     DEFAULT_SCAN_SCHEDULE,
     SCAN_SCHEDULE_STARTUP_ONLY,
     SCAN_SCHEDULE_HOURLY,
@@ -75,38 +76,172 @@ SERVICE_GET_ORDERED_FILES_SCHEMA = vol.Schema({
 }, extra=vol.ALLOW_EXTRA)
 
 SERVICE_GET_FILE_METADATA_SCHEMA = vol.Schema({
-    vol.Required("file_path"): cv.string,
+    vol.Optional("file_path"): cv.string,
+    vol.Optional("media_source_uri"): cv.string,
 }, extra=vol.ALLOW_EXTRA)
 
-SERVICE_GEOCODE_FILE_SCHEMA = vol.Schema({
-    vol.Optional("file_id"): cv.positive_int,
-    vol.Optional("latitude"): vol.Coerce(float),
-    vol.Optional("longitude"): vol.Coerce(float),
-}, extra=vol.ALLOW_EXTRA)
+def _validate_geocode_params(data):
+    """Validate that at least one identification parameter is provided for geocode_file."""
+    has_file_id = data.get("file_id") is not None
+    has_file_path = data.get("file_path") is not None
+    has_media_source_uri = data.get("media_source_uri") is not None
+    has_coordinates = data.get("latitude") is not None and data.get("longitude") is not None
+    
+    if not (has_file_id or has_file_path or has_media_source_uri or has_coordinates):
+        raise vol.Invalid(
+            "At least one identification parameter must be provided: "
+            "'file_id', 'file_path', 'media_source_uri', or 'latitude'+'longitude'"
+        )
+    return data
+
+SERVICE_GEOCODE_FILE_SCHEMA = vol.Schema(
+    vol.All(
+        {
+            vol.Optional("file_id"): cv.positive_int,
+            vol.Optional("file_path"): cv.string,
+            vol.Optional("media_source_uri"): cv.string,
+            vol.Optional("latitude"): vol.Coerce(float),
+            vol.Optional("longitude"): vol.Coerce(float),
+        },
+        _validate_geocode_params,
+    ),
+    extra=vol.ALLOW_EXTRA,
+)
 
 SERVICE_SCAN_FOLDER_SCHEMA = vol.Schema({
     vol.Optional("folder_path"): cv.string,
     vol.Optional("force_rescan", default=False): cv.boolean,
 }, extra=vol.ALLOW_EXTRA)
 
-SERVICE_MARK_FAVORITE_SCHEMA = vol.Schema({
-    vol.Required("file_path"): cv.string,
-    vol.Optional("is_favorite", default=True): cv.boolean,
-}, extra=vol.ALLOW_EXTRA)
+def _validate_path_or_uri(data):
+    """Validate that at least one of file_path or media_source_uri is provided."""
+    if not data.get("file_path") and not data.get("media_source_uri"):
+        raise vol.Invalid("Either 'file_path' or 'media_source_uri' must be provided")
+    return data
 
-SERVICE_DELETE_MEDIA_SCHEMA = vol.Schema({
-    vol.Required("file_path"): cv.string,
-}, extra=vol.ALLOW_EXTRA)
+SERVICE_MARK_FAVORITE_SCHEMA = vol.Schema(
+    vol.All(
+        {
+            vol.Optional("file_path"): cv.string,
+            vol.Optional("media_source_uri"): cv.string,
+            vol.Optional("is_favorite", default=True): cv.boolean,
+        },
+        _validate_path_or_uri,
+    ),
+    extra=vol.ALLOW_EXTRA,
+)
 
-SERVICE_MARK_FOR_EDIT_SCHEMA = vol.Schema({
-    vol.Required("file_path"): cv.string,
-}, extra=vol.ALLOW_EXTRA)
+SERVICE_DELETE_MEDIA_SCHEMA = vol.Schema(
+    vol.All(
+        {
+            vol.Optional("file_path"): cv.string,
+            vol.Optional("media_source_uri"): cv.string,
+        },
+        _validate_path_or_uri,
+    ),
+    extra=vol.ALLOW_EXTRA,
+)
+
+SERVICE_MARK_FOR_EDIT_SCHEMA = vol.Schema(
+    vol.All(
+        {
+            vol.Optional("file_path"): cv.string,
+            vol.Optional("media_source_uri"): cv.string,
+        },
+        _validate_path_or_uri,
+    ),
+    extra=vol.ALLOW_EXTRA,
+)
 
 SERVICE_RESTORE_EDITED_FILES_SCHEMA = vol.Schema({
     vol.Optional("folder_filter"): cv.string,  # e.g., "_Edit"
     vol.Optional("file_path"): cv.string,  # Restore specific file
     vol.Optional("entity_id"): cv.entity_ids,  # Target entity (from UI)
 }, extra=vol.ALLOW_EXTRA)
+
+
+def _convert_uri_to_path(media_source_uri: str, base_folder: str, media_source_prefix: str) -> str:
+    """Convert media-source URI to filesystem path.
+    
+    Args:
+        media_source_uri: Full media-source URI (e.g., "media-source://media_source/media/Photo/PhotoLibrary/2024/IMG_1234.jpg")
+        base_folder: Configured base folder path (e.g., "/media/Photo/PhotoLibrary")
+        media_source_prefix: Configured media-source URI prefix (e.g., "media-source://media_source/media/Photo/PhotoLibrary")
+        
+    Returns:
+        Filesystem path (e.g., "/media/Photo/PhotoLibrary/2024/IMG_1234.jpg")
+        
+    Raises:
+        ValueError: If URI doesn't start with configured prefix or if prefix not configured
+    """
+    if not media_source_prefix:
+        raise ValueError(
+            "Using media_source_uri parameter requires the media_source_uri option "
+            "to be configured in integration settings"
+        )
+    
+    if not media_source_uri.startswith(media_source_prefix):
+        raise ValueError(f"URI '{media_source_uri}' does not match configured prefix '{media_source_prefix}'")
+    
+    # Strip the media_source_prefix and replace with base_folder
+    relative_path = media_source_uri[len(media_source_prefix):]
+    
+    # Prevent path traversal attacks by rejecting any '..' components
+    import os
+    from pathlib import PurePath
+    rel_parts = [part for part in PurePath(relative_path).parts if part not in ('', '.')]
+    if any(part == '..' for part in rel_parts):
+        raise ValueError(f"Path traversal detected in URI: '{media_source_uri}' contains '..' in path")
+    
+    # Normalize paths after validation
+    base_folder_normalized = os.path.normpath(base_folder.rstrip("/"))
+    file_path = os.path.normpath(os.path.join(base_folder_normalized, relative_path.lstrip("/")))
+    
+    # Validate that the resulting path is within base_folder (or is the base_folder itself)
+    base_folder_abs = os.path.abspath(base_folder_normalized)
+    file_path_abs = os.path.abspath(file_path)
+    # Allow exact match (base folder itself) or files/folders within it
+    if file_path_abs != base_folder_abs and not file_path_abs.startswith(base_folder_abs + os.sep):
+        raise ValueError(
+            f"Path traversal detected: resolved path '{file_path_abs}' "
+            f"is outside the base folder '{base_folder_abs}'"
+        )
+    
+    return file_path
+
+
+def _convert_path_to_uri(file_path: str, base_folder: str, media_source_prefix: str) -> str:
+    """Convert filesystem path to media-source URI.
+    
+    Args:
+        file_path: Filesystem path (e.g., "/media/Photo/PhotoLibrary/2024/IMG_1234.jpg")
+        base_folder: Configured base folder path (e.g., "/media/Photo/PhotoLibrary")
+        media_source_prefix: Configured media-source URI prefix (e.g., "media-source://media_source/media/Photo/PhotoLibrary")
+        
+    Returns:
+        Media-source URI (e.g., "media-source://media_source/media/Photo/PhotoLibrary/2024/IMG_1234.jpg")
+        Or empty string if media_source_prefix not configured (backward compatibility)
+        
+    Raises:
+        ValueError: If file_path doesn't start with base_folder
+    """
+    if not media_source_prefix:
+        # Backward compatibility: return empty string if not configured
+        return ""
+    
+    if not file_path.startswith(base_folder):
+        raise ValueError(f"Path '{file_path}' does not start with base folder '{base_folder}'")
+    
+    # Strip the base_folder and replace with media_source_prefix
+    relative_path = file_path[len(base_folder):]
+    
+    # Ensure media_source_prefix doesn't end with slash
+    media_source_prefix = media_source_prefix.rstrip("/")
+    
+    # Combine to get URI
+    media_source_uri = media_source_prefix + relative_path
+    
+    return media_source_uri
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -207,28 +342,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize watcher
     watcher = MediaWatcher(scanner, cache_manager, hass)
     
+    # Construct media_source_uri automatically if not configured
+    # This ensures v1.4+ upgrade path works seamlessly without config changes
+    config = {**entry.data, **entry.options}
+    base_folder = config.get(CONF_BASE_FOLDER, "/media")
+    media_source_uri = config.get(CONF_MEDIA_SOURCE_URI)
+    
+    if not media_source_uri:
+        # Auto-construct: media-source://media_source + base_folder
+        # Example: /media/Photo/PhotoLibrary -> media-source://media_source/media/Photo/PhotoLibrary
+        media_source_uri = f"media-source://media_source{base_folder}"
+        config[CONF_MEDIA_SOURCE_URI] = media_source_uri
+        _LOGGER.info("Auto-constructed media_source_uri: %s (from base_folder: %s)", media_source_uri, base_folder)
+    else:
+        _LOGGER.debug("Using configured media_source_uri: %s", media_source_uri)
+    
     # Store instances
     hass.data[DOMAIN][entry.entry_id]["cache_manager"] = cache_manager
     hass.data[DOMAIN][entry.entry_id]["scanner"] = scanner
     hass.data[DOMAIN][entry.entry_id]["watcher"] = watcher
     hass.data[DOMAIN][entry.entry_id]["geocode_service"] = geocode_service
-    hass.data[DOMAIN][entry.entry_id]["config"] = {**entry.data, **entry.options}
+    hass.data[DOMAIN][entry.entry_id]["config"] = config
     
     # Set up platforms BEFORE starting scan so sensor exists
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
-    # Trigger initial scan if configured
-    config = {**entry.data, **entry.options}
-    base_folder = config.get(CONF_BASE_FOLDER, "/media")
+    # Trigger initial scan AFTER HA has fully started (not during setup)
+    # Use config already constructed above
     watched_folders = config.get(CONF_WATCHED_FOLDERS, [])
     
-    if config.get(CONF_SCAN_ON_STARTUP, True):
-        _LOGGER.info("Starting initial scan of %s (watched: %s)", base_folder, watched_folders)
+    if config.get(CONF_SCAN_ON_STARTUP, DEFAULT_SCAN_ON_STARTUP):
+        async def _trigger_startup_scan(_event=None):
+            """Trigger scan after HA has fully started."""
+            _LOGGER.info("Home Assistant started - beginning initial scan of %s (watched: %s)", base_folder, watched_folders)
+            hass.async_create_task(
+                scanner.scan_folder(base_folder, watched_folders),
+                name=f"media_index_scan_{entry.entry_id}"
+            )
         
-        # Start scan as background task
-        hass.async_create_task(
-            scanner.scan_folder(base_folder, watched_folders)
-        )
+        # Listen for HA start event to trigger scan
+        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _trigger_startup_scan)
+        _LOGGER.info("Startup scan scheduled to run after Home Assistant finishes starting")
+    else:
+        _LOGGER.info("Startup scan disabled by configuration")
     
     # Start file system watcher if enabled
     if config.get(CONF_ENABLE_WATCHER, DEFAULT_ENABLE_WATCHER):
@@ -332,54 +489,121 @@ def _register_services(hass: HomeAssistant):
         """Handle get_random_items service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         
-        _LOGGER.debug("get_random_items: entry_id=%s, call.data=%s", entry_id, call.data)
+        # Debug logging removed to prevent excessive logs during slideshow
+        
+        # Convert folder URI to path if needed
+        folder = call.data.get("folder")
+        if folder and folder.startswith("media-source://"):
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                folder = _convert_uri_to_path(folder, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted folder URI to path: %s", folder)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert folder URI to path: %s", e)
+                return {"items": []}
         
         items = await cache_manager.get_random_files(
             count=call.data.get("count", 10),
-            folder=call.data.get("folder"),
+            folder=folder,
             recursive=call.data.get("recursive", True),
             file_type=call.data.get("file_type"),
             date_from=call.data.get("date_from"),
             date_to=call.data.get("date_to"),
+            favorites_only=call.data.get("favorites_only", False),
             priority_new_files=call.data.get("priority_new_files", False),
             new_files_threshold_seconds=call.data.get("new_files_threshold_seconds", 3600),
         )
         
+        # Add media_source_uri to each item if configured
+        _add_media_source_uris_to_items(items, config)
+        
         result = {"items": items}
-        _LOGGER.debug("Retrieved %d random items from entry_id %s", len(items), entry_id)
+        # Debug: Retrieved X random items (logging removed)
         return result
+    
+    def _add_media_source_uris_to_items(items, config):
+        """Helper to add media_source_uri to each item in list."""
+        base_folder = config.get(CONF_BASE_FOLDER)
+        media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+        
+        if media_source_prefix and base_folder:
+            for item in items:
+                try:
+                    item["media_source_uri"] = _convert_path_to_uri(
+                        item["path"], base_folder, media_source_prefix
+                    )
+                except ValueError as e:
+                    _LOGGER.warning("Failed to convert path to URI for %s: %s", item.get("path"), e)
+                    item["media_source_uri"] = ""
     
     async def handle_get_ordered_files(call):
         """Handle get_ordered_files service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         
-        _LOGGER.debug("get_ordered_files: entry_id=%s, call.data=%s", entry_id, call.data)
+        # Debug logging removed to prevent excessive logs during slideshow
+        
+        # Convert folder URI to path if needed
+        folder = call.data.get("folder")
+        if folder and folder.startswith("media-source://"):
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                folder = _convert_uri_to_path(folder, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted folder URI to path: %s", folder)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert folder URI to path: %s", e)
+                return {"items": []}
         
         items = await cache_manager.get_ordered_files(
             count=call.data.get("count", 50),
-            folder=call.data.get("folder"),
+            folder=folder,
             recursive=call.data.get("recursive", True),
             file_type=call.data.get("file_type"),
             order_by=call.data.get("order_by", "date_taken"),
             order_direction=call.data.get("order_direction", "desc"),
         )
         
+        # Add media_source_uri to each item if configured
+        _add_media_source_uris_to_items(items, config)
+        
         result = {"items": items}
-        _LOGGER.debug("Retrieved %d ordered items from entry_id %s", len(items), entry_id)
+        # Debug: Retrieved X ordered items (logging removed)
         return result
     
     async def handle_get_file_metadata(call):
         """Handle get_file_metadata service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
-        file_path = call.data["file_path"]
+        config = hass.data[DOMAIN][entry_id]["config"]
+        
+        # Get file_path from either file_path parameter or media_source_uri
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
+        
+        if not file_path and media_source_uri:
+            # Convert URI to path
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {"error": str(e)}
+        
+        if not file_path:
+            return {"error": "Either file_path or media_source_uri required"}
         
         metadata = await cache_manager.get_file_by_path(file_path)
         
         if metadata:
-            _LOGGER.info("Retrieved metadata for: %s", file_path)
             return metadata
         else:
             _LOGGER.warning("File not found in index: %s", file_path)
@@ -389,6 +613,7 @@ def _register_services(hass: HomeAssistant):
         """Handle geocode_file service call for progressive geocoding."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
         geocode_service = hass.data[DOMAIN][entry_id].get("geocode_service")
         
         if not geocode_service:
@@ -396,8 +621,27 @@ def _register_services(hass: HomeAssistant):
             return {"error": "Geocoding not enabled"}
         
         file_id = call.data.get("file_id")
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
         lat = call.data.get("latitude")
         lon = call.data.get("longitude")
+        
+        # Convert media_source_uri to file_path if provided
+        if not file_path and media_source_uri:
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {"error": str(e)}
+        
+        # Get file_id from file_path if provided but file_id not given
+        if file_path and not file_id:
+            file_data = await cache_manager.get_file_by_path(file_path)
+            if file_data:
+                file_id = file_data.get("id")
         
         # Get coordinates from file_id if not provided
         if file_id and not (lat and lon):
@@ -414,21 +658,17 @@ def _register_services(hass: HomeAssistant):
             lon = exif_data["longitude"]
         
         if not (lat and lon):
-            return {"error": "Either file_id or latitude/longitude required"}
-        
-        _LOGGER.info("Progressive geocoding request for (%s, %s)", lat, lon)
+            return {"error": "Either file_id, file_path, media_source_uri, or latitude/longitude required"}
         
         # 1. Check geocode cache first (fast)
         cached_location = await cache_manager.get_geocode_cache(lat, lon)
         if cached_location:
-            _LOGGER.info("Cache HIT for (%s, %s): %s", round(lat, 3), round(lon, 3), cached_location.get('location_city'))
             # Update exif_data table with cached result
             if file_id:
                 await cache_manager.update_exif_location(file_id, cached_location)
             return cached_location
         
         # 2. Call Nominatim API (slow, rate-limited)
-        _LOGGER.info("Cache MISS for (%s, %s) - calling Nominatim API", round(lat, 3), round(lon, 3))
         location_data = await geocode_service.reverse_geocode(lat, lon)
         
         if not location_data:
@@ -441,13 +681,6 @@ def _register_services(hass: HomeAssistant):
         if file_id:
             await cache_manager.update_exif_location(file_id, location_data)
         
-        _LOGGER.info(
-            "Geocoded (%s, %s) to: %s, %s",
-            lat, lon,
-            location_data.get('location_city'),
-            location_data.get('location_country')
-        )
-        
         # 5. Return location data to caller
         return location_data
     
@@ -455,15 +688,41 @@ def _register_services(hass: HomeAssistant):
         """Handle mark_favorite service call."""
         entry_id = _get_entry_id_from_call(hass, call)
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
-        file_path = call.data["file_path"]
+        config = hass.data[DOMAIN][entry_id]["config"]
+        
+        # Get file_path from either file_path parameter or media_source_uri
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
+        
+        if not file_path and media_source_uri:
+            # Convert URI to path
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {
+                    "status": "error",
+                    "error": str(e)
+                }
+        
+        if not file_path:
+            return {
+                "status": "error",
+                "error": "Either file_path or media_source_uri required"
+            }
+        
         is_favorite = call.data.get("is_favorite", True)
         
-        _LOGGER.debug("🔍 mark_favorite called: path='%s', is_favorite=%s", file_path, is_favorite)
+        # Debug logging removed to prevent excessive logs during slideshow
         
         try:
             # Update database
             db_success = await cache_manager.update_favorite(file_path, is_favorite)
-            _LOGGER.debug("🔍 Database update result: %s", db_success)
+            # Debug: Database update result (logging removed)
             
             # Write rating to file metadata
             # Rating 5 = favorite, Rating 0 = unfavorited
@@ -471,20 +730,20 @@ def _register_services(hass: HomeAssistant):
             
             # Determine file type to use appropriate parser
             file_ext = Path(file_path).suffix.lower()
-            _LOGGER.debug("🔍 File extension: %s, rating to write: %d", file_ext, rating)
+            # Debug: File extension, rating to write (logging removed)
             
             if file_ext in {'.jpg', '.jpeg', '.png', '.tiff', '.tif', '.heic'}:
-                _LOGGER.debug("🔍 Calling ExifParser.write_rating for: %s", file_path)
+                # Debug: Calling ExifParser.write_rating (logging removed)
                 success = await hass.async_add_executor_job(
                     ExifParser.write_rating, file_path, rating
                 )
-                _LOGGER.debug("🔍 ExifParser.write_rating result: %s", success)
+                # Debug: ExifParser.write_rating result (logging removed)
             elif file_ext in {'.mp4', '.m4v', '.mov'}:
-                _LOGGER.debug("🔍 Calling VideoMetadataParser.write_rating for: %s", file_path)
+                # Debug: Calling VideoMetadataParser.write_rating (logging removed)
                 success = await hass.async_add_executor_job(
                     VideoMetadataParser.write_rating, file_path, rating
                 )
-                _LOGGER.debug("🔍 VideoMetadataParser.write_rating result: %s", success)
+                # Debug: VideoMetadataParser.write_rating result (logging removed)
             else:
                 success = False
                 _LOGGER.warning("Unsupported file type for rating: %s", file_ext)
@@ -516,7 +775,31 @@ def _register_services(hass: HomeAssistant):
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         config = hass.data[DOMAIN][entry_id]["config"]
         
-        file_path = call.data["file_path"]
+        # Get file_path from either file_path parameter or media_source_uri
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
+        
+        if not file_path and media_source_uri:
+            # Convert URI to path
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {
+                    "status": "error",
+                    "error": str(e)
+                }
+        
+        if not file_path:
+            return {
+                "status": "error",
+                "error": "Either file_path or media_source_uri required"
+            }
+        
         base_folder = config.get(CONF_BASE_FOLDER, "/media")
         
         _LOGGER.info("Deleting media file: %s", file_path)
@@ -548,8 +831,6 @@ def _register_services(hass: HomeAssistant):
             # Remove from database
             await cache_manager.delete_file(file_path)
             
-            _LOGGER.info("Moved file to junk folder: %s -> %s", file_path, dest_path)
-            
             return {
                 "file_path": file_path,
                 "junk_path": str(dest_path),
@@ -571,10 +852,32 @@ def _register_services(hass: HomeAssistant):
         cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
         config = hass.data[DOMAIN][entry_id]["config"]
         
-        file_path = call.data["file_path"]
-        base_folder = config.get(CONF_BASE_FOLDER, "/media")
+        # Get file_path from either file_path parameter or media_source_uri
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
         
-        _LOGGER.info("Marking file for editing: %s", file_path)
+        if not file_path and media_source_uri:
+            # Convert URI to path
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+                _LOGGER.debug("Converted URI to path: %s -> %s", media_source_uri, file_path)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {
+                    "status": "error",
+                    "error": str(e)
+                }
+        
+        if not file_path:
+            return {
+                "status": "error",
+                "error": "Either file_path or media_source_uri required"
+            }
+        
+        base_folder = config.get(CONF_BASE_FOLDER, "/media")
         
         try:
             # Create edit folder if it doesn't exist
@@ -604,8 +907,6 @@ def _register_services(hass: HomeAssistant):
             
             # Remove from database (will be re-added on next scan if moved back)
             await cache_manager.delete_file(file_path)
-            
-            _LOGGER.info("Moved file to edit folder: %s -> %s", file_path, dest_path)
             
             return {
                 "file_path": file_path,

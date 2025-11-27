@@ -35,16 +35,22 @@ get_random_items:
             - "video"
     date_from:
       name: Date From
-      description: Filter files modified after this date (YYYY-MM-DD)
+      description: Filter files with date >= this value (YYYY-MM-DD). Uses EXIF date_taken if available, falls back to created_time.
       example: "2023-01-01"
       selector:
         date:
     date_to:
       name: Date To
-      description: Filter files modified before this date (YYYY-MM-DD)
+      description: Filter files with date <= this value (YYYY-MM-DD). Uses EXIF date_taken if available, falls back to created_time.
       example: "2023-12-31"
       selector:
         date:
+    favorites_only:
+      name: Favorites Only
+      description: If true, only return files marked as favorites
+      default: false
+      selector:
+        boolean:
     priority_new_files:
       name: Priority New Files
       description: If true, prioritize recently scanned files before random selection
@@ -136,9 +142,16 @@ get_file_metadata:
   fields:
     file_path:
       name: File Path
-      description: Full path to the media file
-      required: true
+      description: Full filesystem path to the media file (use either this OR media_source_uri)
+      required: false
       example: "/media/photo/Photos/2023/vacation.jpg"
+      selector:
+        text:
+    media_source_uri:
+      name: Media Source URI
+      description: Media-source URI (use either this OR file_path)
+      required: false
+      example: "media-source://media_source/media/photo/Photos/2023/vacation.jpg"
       selector:
         text:
 
@@ -158,9 +171,23 @@ geocode_file:
         number:
           min: 1
           mode: box
+    file_path:
+      name: File Path
+      description: Full filesystem path to the media file (use this OR file_id OR media_source_uri)
+      required: false
+      example: "/media/photo/Photos/2023/vacation.jpg"
+      selector:
+        text:
+    media_source_uri:
+      name: Media Source URI
+      description: Media-source URI (use this OR file_id OR file_path)
+      required: false
+      example: "media-source://media_source/media/photo/Photos/2023/vacation.jpg"
+      selector:
+        text:
     latitude:
       name: Latitude
-      description: GPS latitude (alternative to file_id)
+      description: GPS latitude (alternative to file_id/file_path/media_source_uri)
       required: false
       selector:
         number:
@@ -169,7 +196,7 @@ geocode_file:
           mode: box
     longitude:
       name: Longitude
-      description: GPS longitude (alternative to file_id)
+      description: GPS longitude (alternative to file_id/file_path/media_source_uri)
       required: false
       selector:
         number:
@@ -208,9 +235,16 @@ mark_favorite:
   fields:
     file_path:
       name: File Path
-      description: Full path to the media file
-      required: true
+      description: Full filesystem path to the media file (use either this OR media_source_uri)
+      required: false
       example: "/media/photo/Photos/2023/vacation.jpg"
+      selector:
+        text:
+    media_source_uri:
+      name: Media Source URI
+      description: Media-source URI (use either this OR file_path)
+      required: false
+      example: "media-source://media_source/media/photo/Photos/2023/vacation.jpg"
       selector:
         text:
     is_favorite:
@@ -230,9 +264,16 @@ delete_media:
   fields:
     file_path:
       name: File Path
-      description: Full path to the media file to delete
-      required: true
-      example: "/media/photo/Photos/2023/bad hair day.jpg"
+      description: Full filesystem path to the media file (use either this OR media_source_uri)
+      required: false
+      example: "/media/photo/Photos/2023/bad_hair_day.jpg"
+      selector:
+        text:
+    media_source_uri:
+      name: Media Source URI
+      description: Media-source URI (use either this OR file_path)
+      required: false
+      example: "media-source://media_source/media/photo/Photos/2023/bad_hair_day.jpg"
       selector:
         text:
 
@@ -246,9 +287,16 @@ mark_for_edit:
   fields:
     file_path:
       name: File Path
-      description: Full path to the media file to mark for editing
-      required: true
+      description: Full filesystem path to the media file (use either this OR media_source_uri)
+      required: false
       example: "/media/photo/Photos/2023/needs_editing.jpg"
+      selector:
+        text:
+    media_source_uri:
+      name: Media Source URI
+      description: Media-source URI (use either this OR file_path)
+      required: false
+      example: "media-source://media_source/media/photo/Photos/2023/needs_editing.jpg"
       selector:
         text:
 

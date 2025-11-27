@@ -58,14 +58,16 @@ Get random media files from the index (used by Media Card).
 
 **Parameters:**
 - `count` (optional, default: 1): Number of items to return (1-100)
-- `folder` (optional): Filter by specific folder path
+- `folder` (optional): Filter by folder (filesystem path or media-source URI)
 - `file_type` (optional): Filter by `image` or `video`
-- `date_from` (optional): ISO date string (YYYY-MM-DD)
-- `date_to` (optional): ISO date string (YYYY-MM-DD)
+- `date_from` (optional): ISO date string (YYYY-MM-DD) - uses EXIF date_taken if available, falls back to created_time. Null means "no lower limit"
+- `date_to` (optional): ISO date string (YYYY-MM-DD) - uses EXIF date_taken if available, falls back to created_time. Null means "no upper limit"
+- `favorites_only` (optional, default: false): Only return files marked as favorites
 - `priority_new_files` (optional, default: false): Prioritize recently scanned files
 - `new_files_threshold_seconds` (optional, default: 3600): Seconds threshold for "new" files
+- `recursive` (optional, default: true): Include subfolders
 
-**Returns:** List of media items with metadata
+**Returns:** List of media items with metadata (includes `media_source_uri` in v1.4+)
 
 **Examples:**
 ```yaml
@@ -75,12 +77,49 @@ data:
   count: 20
   file_type: image
 
+# Filter by folder (filesystem path)
+service: media_index.get_random_items
+data:
+  count: 20
+  folder: /media/Photo/Vacation
+
+# v1.4: Filter by folder (media-source URI)
+service: media_index.get_random_items
+data:
+  count: 20
+  folder: media-source://media_source/local/photos/vacation
+
 # Priority for recent files (v1.3 feature)
 service: media_index.get_random_items
 data:
   count: 50
   priority_new_files: true
   new_files_threshold_seconds: 2592000  # 30 days
+
+# Only favorites (useful for slideshow of best photos)
+service: media_index.get_random_items
+data:
+  count: 20
+  favorites_only: true
+
+# Date range: files from 2023 (null date_from/date_to means no limit)
+service: media_index.get_random_items
+data:
+  count: 20
+  date_from: "2023-01-01"
+  date_to: "2023-12-31"
+
+# "This month or earlier" (date_from null = no lower limit)
+service: media_index.get_random_items
+data:
+  count: 20
+  date_to: "2024-11-30"
+
+# "This year onwards" (date_to null = no upper limit)
+service: media_index.get_random_items
+data:
+  count: 20
+  date_from: "2024-01-01"
 ```
 
 ### `media_index.get_ordered_files`
@@ -89,13 +128,13 @@ data:
 
 **Parameters:**
 - `count` (optional, default: 50): Maximum number of files to return (1-1000)
-- `folder` (optional): Filter by specific folder path
+- `folder` (optional): Filter by folder (filesystem path or media-source URI)
 - `recursive` (optional, default: true): Include subfolders
 - `file_type` (optional): Filter by `image` or `video`
 - `order_by` (optional, default: `date_taken`): Sort field (`date_taken`, `filename`, `path`, `modified_time`)
 - `order_direction` (optional, default: `desc`): Sort direction (`asc` or `desc`)
 
-**Returns:** List of ordered media items with metadata
+**Returns:** List of ordered media items with metadata (includes `media_source_uri` in v1.4+)
 
 **Examples:**
 ```yaml
@@ -120,9 +159,25 @@ data:
 Get detailed metadata for a specific file.
 
 **Parameters:**
-- `file_path` (required): Full path to media file
+- `file_path` (optional): Full filesystem path to media file
+- `media_source_uri` (optional, v1.4+): Media-source URI (alternative to file_path)
+
+**Note:** Provide either `file_path` OR `media_source_uri`
 
 **Returns:** Complete metadata including EXIF, location, GPS, and ratings
+
+**Examples:**
+```yaml
+# Using filesystem path
+service: media_index.get_file_metadata
+data:
+  file_path: /media/Photo/PhotoLibrary/sunset.jpg
+
+# v1.4: Using media-source URI
+service: media_index.get_file_metadata
+data:
+  media_source_uri: media-source://media_source/media/Photo/PhotoLibrary/sunset.jpg
+```
 
 ## File Management Services
 
@@ -131,14 +186,24 @@ Get detailed metadata for a specific file.
 Mark a file as favorite (writes to database and EXIF).
 
 **Parameters:**
-- `file_path` (required): Full path to media file
+- `file_path` (optional): Full filesystem path to media file
+- `media_source_uri` (optional, v1.4+): Media-source URI (alternative to file_path)
 - `is_favorite` (optional, default: true): Favorite status
 
-**Example:**
+**Note:** Provide either `file_path` OR `media_source_uri`
+
+**Examples:**
 ```yaml
+# Using filesystem path
 service: media_index.mark_favorite
 data:
   file_path: /media/photo/PhotoLibrary/sunset.jpg
+  is_favorite: true
+
+# v1.4: Using media-source URI
+service: media_index.mark_favorite
+data:
+  media_source_uri: media-source://media_source/media/Photo/PhotoLibrary/sunset.jpg
   is_favorite: true
 ```
 
@@ -147,13 +212,22 @@ data:
 Delete a media file (moves to `_Junk` folder).
 
 **Parameters:**
-- `file_path` (required): Full path to media file
+- `file_path` (optional): Full filesystem path to media file
+- `media_source_uri` (optional, v1.4+): Media-source URI (alternative to file_path)
 
-**Example:**
+**Note:** Provide either `file_path` OR `media_source_uri`
+
+**Examples:**
 ```yaml
+# Using filesystem path
 service: media_index.delete_media
 data:
   file_path: /media/photo/PhotoLibrary/blurry.jpg
+
+# v1.4: Using media-source URI
+service: media_index.delete_media
+data:
+  media_source_uri: media-source://media_source/media/Photo/PhotoLibrary/blurry.jpg
 ```
 
 ### `media_index.mark_for_edit`
@@ -161,13 +235,22 @@ data:
 Mark a file for editing (moves to `_Edit` folder).
 
 **Parameters:**
-- `file_path` (required): Full path to media file
+- `file_path` (optional): Full filesystem path to media file
+- `media_source_uri` (optional, v1.4+): Media-source URI (alternative to file_path)
 
-**Example:**
+**Note:** Provide either `file_path` OR `media_source_uri`
+
+**Examples:**
 ```yaml
+# Using filesystem path
 service: media_index.mark_for_edit
 data:
   file_path: /media/photo/PhotoLibrary/needs_crop.jpg
+
+# v1.4: Using media-source URI
+service: media_index.mark_for_edit
+data:
+  media_source_uri: media-source://media_source/media/Photo/PhotoLibrary/needs_crop.jpg
 ```
 
 ## Maintenance Services
@@ -198,17 +281,31 @@ Force geocoding of a file's GPS coordinates (cache-first, on-demand).
 
 **Parameters:**
 - `file_id` (optional): Database ID of the file to geocode
-- `latitude` (optional): GPS latitude (alternative to file_id)
-- `longitude` (optional): GPS longitude (alternative to file_id)
+- `file_path` (optional): Full filesystem path to media file
+- `media_source_uri` (optional, v1.4+): Media-source URI (alternative to file_path)
+- `latitude` (optional): GPS latitude (v1.3+, alternative to file identification)
+- `longitude` (optional): GPS longitude (v1.3+, requires latitude)
 
-**Example:**
+**Note:** Provide one of: `file_id`, `file_path`, `media_source_uri`, or `latitude`+`longitude`
+
+**Examples:**
 ```yaml
 # Geocode by file ID
 service: media_index.geocode_file
 data:
   file_id: 12345
 
-# Geocode by coordinates
+# Geocode by filesystem path
+service: media_index.geocode_file
+data:
+  file_path: /media/Photo/PhotoLibrary/sunset.jpg
+
+# v1.4: Geocode by media-source URI
+service: media_index.geocode_file
+data:
+  media_source_uri: media-source://media_source/media/Photo/PhotoLibrary/sunset.jpg
+
+# v1.3: Geocode by coordinates
 service: media_index.geocode_file
 data:
   latitude: 37.7749
@@ -240,3 +337,37 @@ The Media Index services integrate seamlessly with the [Home Assistant Media Car
 - All blocking I/O operations wrapped in executor jobs (HA 2025.x compatibility)
 - Reduced service call logging (changed from WARNING to DEBUG level)
 - Optimized EXIF parsing with caching
+
+## v1.4 URI Support
+
+### Complete Media-Source URI Integration
+
+**Automatic URI Construction (v1.4+)**: Media Index automatically constructs `media_source_uri` from your `base_folder` if not explicitly configured. This provides seamless v1.4 upgrade without requiring configuration changes.
+
+**Example automatic construction:**
+- Base folder: `/media/Photo/PhotoLibrary`
+- Auto-constructed URI: `media-source://media_source/media/Photo/PhotoLibrary`
+
+**Explicit configuration (optional):**
+```yaml
+sensor:
+  - platform: media_index
+    name: "PhotoLibrary"
+    base_folder: "/media/Photo/PhotoLibrary"
+    media_source_uri: "media-source://media_source/media/Photo/PhotoLibrary"  # Optional
+```
+
+### Features
+
+- 🔗 **All file-based services** now accept `media_source_uri` parameter as alternative to `file_path`
+  - `get_file_metadata`
+  - `mark_favorite`
+  - `delete_media`
+  - `mark_for_edit`
+  - `geocode_file`
+- 📁 **Folder filtering services** accept media-source URIs in `folder` parameter
+  - `get_random_items`
+  - `get_ordered_files`
+- 📤 **Response items** include `media_source_uri` field alongside `path`
+- 🔄 **Automatic conversion** - Backend handles URI ↔ path translation transparently
+- ✅ **Full backward compatibility** - All existing `file_path` usage continues to work
