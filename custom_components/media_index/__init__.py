@@ -197,10 +197,11 @@ def _convert_uri_to_path(media_source_uri: str, base_folder: str, media_source_p
     base_folder_normalized = os.path.normpath(base_folder.rstrip("/"))
     file_path = os.path.normpath(os.path.join(base_folder_normalized, relative_path.lstrip("/")))
     
-    # Validate that the resulting path is within base_folder
+    # Validate that the resulting path is within base_folder (or is the base_folder itself)
     base_folder_abs = os.path.abspath(base_folder_normalized)
     file_path_abs = os.path.abspath(file_path)
-    if not file_path_abs.startswith(base_folder_abs + os.sep):
+    # Allow exact match (base folder itself) or files/folders within it
+    if file_path_abs != base_folder_abs and not file_path_abs.startswith(base_folder_abs + os.sep):
         raise ValueError(
             f"Path traversal detected: resolved path '{file_path_abs}' "
             f"is outside the base folder '{base_folder_abs}'"
