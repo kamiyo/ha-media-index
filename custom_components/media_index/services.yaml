@@ -155,6 +155,57 @@ get_file_metadata:
       selector:
         text:
 
+get_burst_photos:
+  name: Get Burst Photos
+  description: Get photos taken within a time window (and optionally same location) for burst/duplicate detection
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
+  fields:
+    reference_path:
+      name: Reference File Path
+      description: Full filesystem path to the reference media file
+      required: true
+      example: "/media/photo/Photos/2023/IMG_1234.jpg"
+      selector:
+        text:
+    time_window_seconds:
+      name: Time Window
+      description: Time window in seconds (±) around reference photo's timestamp
+      default: 120
+      selector:
+        number:
+          min: 10
+          max: 3600
+          mode: box
+    prefer_same_location:
+      name: Prefer Same Location
+      description: Filter by GPS proximity if available (fallback to time-only if no GPS)
+      default: true
+      selector:
+        boolean:
+    location_tolerance_meters:
+      name: Location Tolerance
+      description: Maximum distance in meters for GPS matching
+      default: 50
+      selector:
+        number:
+          min: 10
+          max: 1000
+          mode: box
+    sort_order:
+      name: Sort Order
+      description: How to order results
+      default: "time_asc"
+      selector:
+        select:
+          options:
+            - label: "Time Ascending (Chronological)"
+              value: "time_asc"
+            - label: "Time Descending (Reverse)"
+              value: "time_desc"
+
 geocode_file:
   name: Geocode File
   description: Get location name for a file with GPS coordinates (cache-first, on-demand)
