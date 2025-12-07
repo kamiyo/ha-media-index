@@ -3,6 +3,7 @@ import aiosqlite
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, List, Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -217,7 +218,9 @@ class CacheManager:
             'focal_length_35mm': 'INTEGER',
             'exposure_compensation': 'TEXT',
             'metering_mode': 'TEXT',
-            'white_balance': 'TEXT'
+            'white_balance': 'TEXT',
+            'burst_favorites': 'TEXT',
+            'burst_count': 'INTEGER'
         }
         
         # Validate against whitelist to prevent SQL injection
@@ -1170,6 +1173,8 @@ class CacheManager:
                 e.location_city,
                 e.location_state,
                 e.location_country,
+                e.is_favorited,
+                e.rating,
                 (e.date_taken - ?) AS seconds_offset
         """
         
@@ -1345,6 +1350,52 @@ class CacheManager:
         else:
             _LOGGER.warning("File not found in database: %s", file_path)
             return False
+    
+    async def update_burst_metadata(self, burst_paths: list, favorited_paths: list) -> int:
+        """Update burst_favorites and burst_count metadata for all files in a burst group.
+        
+        Args:
+            burst_paths: List of all file paths in the burst
+            favorited_paths: List of file paths that were marked as favorites
+            
+        Returns:
+            Number of files successfully updated
+        """
+        import json
+        
+        # Store favorited filenames (not full paths) for portability
+        favorited_filenames = [Path(p).name for p in favorited_paths]
+        favorites_json = json.dumps(favorited_filenames) if favorited_filenames else None
+        burst_count = len(burst_paths)
+        
+        updated_count = 0
+        
+        for file_path in burst_paths:
+            try:
+                # Update exif_data table with burst_favorites JSON and burst_count
+                async with self._db.execute(
+                    """UPDATE exif_data 
+                       SET burst_favorites = ?, burst_count = ?
+                       WHERE file_id = (SELECT id FROM media_files WHERE path = ?)""",
+                    (favorites_json, burst_count, file_path)
+                ) as cursor:
+                    if cursor.rowcount > 0:
+                        updated_count += 1
+                        
+            except Exception as e:
+                _LOGGER.warning("Failed to update burst metadata for %s: %s", file_path, e)
+        
+        await self._db.commit()
+        
+        _LOGGER.debug(
+            "Updated burst metadata for %d/%d files (burst_count=%d, %d favorited)", 
+            updated_count, 
+            len(burst_paths),
+            burst_count,
+            len(favorited_filenames)
+        )
+        
+        return updated_count
     
     async def delete_file(self, file_path: str) -> bool:
         """Delete file record from database.

@@ -42,6 +42,7 @@ from .const import (
     SERVICE_MARK_FOR_EDIT,
     SERVICE_RESTORE_EDITED_FILES,
     SERVICE_CLEANUP_DATABASE,
+    SERVICE_UPDATE_BURST_METADATA,
 )
 from .cache_manager import CacheManager
 from .scanner import MediaScanner
@@ -683,6 +684,9 @@ def _register_services(hass: HomeAssistant):
         else:
             return {"error": f"Invalid mode: {mode}", "items": []}
         
+        # Add media_source_uri to all items
+        _add_media_source_uris_to_items(items, config)
+        
         return {
             "reference_path": reference_path,
             "mode": mode,
@@ -1167,6 +1171,68 @@ def _register_services(hass: HomeAssistant):
                 "error": str(e)
             }
     
+    async def handle_update_burst_metadata(call):
+        """Handle update_burst_metadata service call."""
+        entry_id = _get_entry_id_from_call(hass, call)
+        cache_manager = hass.data[DOMAIN][entry_id]["cache_manager"]
+        config = hass.data[DOMAIN][entry_id]["config"]
+        
+        base_folder = config.get(CONF_BASE_FOLDER, "/media")
+        media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+        
+        burst_files = call.data.get("burst_files", [])
+        favorited_files = call.data.get("favorited_files", [])
+        
+        _LOGGER.info(
+            "update_burst_metadata: %d burst files, %d favorited", 
+            len(burst_files), 
+            len(favorited_files)
+        )
+        
+        try:
+            # Convert URIs to filesystem paths
+            burst_paths = []
+            for uri in burst_files:
+                try:
+                    path = _convert_uri_to_path(uri, base_folder, media_source_prefix)
+                    if path:
+                        burst_paths.append(path)
+                except Exception as e:
+                    _LOGGER.warning("Failed to convert URI %s: %s", uri, e)
+            
+            favorited_paths = []
+            for uri in favorited_files:
+                try:
+                    path = _convert_uri_to_path(uri, base_folder, media_source_prefix)
+                    if path:
+                        favorited_paths.append(path)
+                except Exception as e:
+                    _LOGGER.warning("Failed to convert URI %s: %s", uri, e)
+            
+            # Update burst metadata in database
+            updated_count = await cache_manager.update_burst_metadata(burst_paths, favorited_paths)
+            
+            _LOGGER.info(
+                "Updated burst metadata for %d files (burst_count=%d, %d favorited)", 
+                updated_count,
+                len(burst_paths), 
+                len(favorited_paths)
+            )
+            
+            return {
+                "status": "success",
+                "files_updated": updated_count,
+                "burst_count": len(burst_paths),
+                "favorites_count": len(favorited_paths)
+            }
+            
+        except Exception as e:
+            _LOGGER.error("Error in update_burst_metadata service: %s", e)
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
     async def handle_scan_folder(call):
         """Handle scan_folder service call."""
         entry_id = _get_entry_id_from_call(hass, call)
@@ -1275,6 +1341,17 @@ def _register_services(hass: HomeAssistant):
         schema=vol.Schema({
             vol.Optional("dry_run", default=True): cv.boolean,
         }),
+        supports_response=SupportsResponse.ONLY,
+    )
+    
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_BURST_METADATA,
+        handle_update_burst_metadata,
+        schema=vol.Schema({
+            vol.Required("burst_files"): vol.All(cv.ensure_list, [cv.string]),
+            vol.Required("favorited_files"): vol.All(cv.ensure_list, [cv.string]),
+        }, extra=vol.ALLOW_EXTRA),
         supports_response=SupportsResponse.ONLY,
     )
     

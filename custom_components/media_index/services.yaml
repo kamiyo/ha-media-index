@@ -423,3 +423,26 @@ cleanup_database:
       default: true
       selector:
         boolean:
+
+update_burst_metadata:
+  name: Update Burst Metadata
+  description: Write burst_favorites metadata to all files in a burst group
+  target:
+    entity:
+      integration: media_index
+      domain: sensor
+  fields:
+    burst_files:
+      name: Burst Files
+      description: List of all file URIs in the burst group
+      required: true
+      example: ["media-source://media_source/media/photo/burst/IMG_001.jpg", "media-source://media_source/media/photo/burst/IMG_002.jpg"]
+      selector:
+        object:
+    favorited_files:
+      name: Favorited Files
+      description: List of file URIs that were marked as favorites
+      required: true
+      example: ["media-source://media_source/media/photo/burst/IMG_001.jpg"]
+      selector:
+        object:
