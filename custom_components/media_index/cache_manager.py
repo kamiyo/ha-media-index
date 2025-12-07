@@ -969,8 +969,8 @@ class CacheManager:
                 params.append(date_to_str)
             except (ValueError, TypeError) as e:
                 _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
-            
-            query += " ORDER BY RANDOM() LIMIT ?"
+        
+        query += " ORDER BY RANDOM() LIMIT ?"
         params.append(int(count))
         
         async with self._db.execute(query, tuple(params)) as cursor:

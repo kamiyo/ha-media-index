@@ -9,14 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Burst Detection Service**: New `get_burst_photos` service for finding photos taken within a time window
+- **Burst Detection Mode**: New `mode: burst` parameter for `get_related_files` service
   - Time-based filtering: ±N seconds around reference photo's timestamp (default ±2 minutes)
   - GPS-based filtering: Haversine distance calculation for location matching (default 50 meters)
   - Automatic fallback to time-only matching when GPS data unavailable
   - Configurable sort order: chronological (`time_asc`) or reverse (`time_desc`)
   - Returns `seconds_offset` and `distance_meters` for each matching photo
   - Same-year restriction prevents cross-year matches for burst detection
-  - Designed for Media Card v5.5 "At This Moment" burst review feature
+  - Designed for Media Card v5.5+ "At This Moment" burst review feature
   - Example use case: Compare rapid-fire shots to select the best photo for keeping
 
 - **Burst Metadata Persistence**: New `update_burst_metadata` service for tracking burst review sessions
@@ -28,8 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Service Parameters
 
-**get_burst_photos**:
-- `reference_path` (required): Full filesystem path to reference photo
+**get_related_files** (burst mode):
+- `mode` (required): Set to `"burst"` for burst detection
+- `reference_path` or `media_source_uri` (required): Reference photo path or URI
 - `time_window_seconds` (optional, default 120): Time window in seconds (±)
 - `prefer_same_location` (optional, default true): Enable GPS proximity filtering
 - `location_tolerance_meters` (optional, default 50): Maximum GPS distance for matching
@@ -52,28 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Favorited filenames stored (not full paths) for portability
 - Empty favorites stored as `NULL` rather than empty JSON array
 - All files in burst receive same metadata regardless of individual favorite status
-
-## [1.4.0] - 2025-11-25
-
-### Added
-
-- **Burst Detection Service**: New `get_burst_photos` service for finding photos taken within a time window
-  - Time-based filtering: ±N seconds around reference photo's timestamp (default ±2 minutes)
-  - GPS-based filtering: Haversine distance calculation for location matching (default 50 meters)
-  - Automatic fallback to time-only matching when GPS data unavailable
-  - Configurable sort order: chronological (`time_asc`) or reverse (`time_desc`)
-  - Returns `seconds_offset` and `distance_meters` for each matching photo
-  - Same-year restriction prevents cross-year matches for burst detection
-  - Designed for Media Card v5.5 "At This Moment" burst review feature
-  - Example use case: Compare rapid-fire shots to select the best photo for keeping
-
-### Service Parameters
-
-- `reference_path` (required): Full filesystem path to reference photo
-- `time_window_seconds` (optional, default 120): Time window in seconds (±)
-- `prefer_same_location` (optional, default true): Enable GPS proximity filtering
-- `location_tolerance_meters` (optional, default 50): Maximum GPS distance for matching
-- `sort_order` (optional, default "time_asc"): Result ordering
 
 ## [1.4.0] - 2025-11-25
 
