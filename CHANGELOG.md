@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2025-12-06
+
+### Added
+
+- **Burst Metadata Persistence**: New `update_burst_metadata` service for tracking burst review sessions
+  - Writes `burst_favorites` (JSON array of favorited filenames) to all files in a burst group
+  - Writes `burst_count` (integer) to record total files in burst at review time
+  - Enables historical tracking even if files are later deleted or parameters change
+  - New database columns: `exif_data.burst_favorites` (TEXT), `exif_data.burst_count` (INTEGER)
+  - Database migration automatically adds columns to existing installations
+
+### Service Parameters
+
+- `burst_files` (required): List of all file URIs in the burst group
+- `favorited_files` (required): List of file URIs marked as favorites
+- Returns: `files_updated`, `burst_count`, `favorites_count`
+
+### Changed
+
+- **get_related_files Service**: Now includes `is_favorited` and `rating` fields in burst results
+- **get_related_files Service**: Now includes `media_source_uri` for all returned items
+- **Service Schema**: Added `extra=vol.ALLOW_EXTRA` to allow `entity_id` from target parameter
+
+### Technical Details
+
+- URI to path conversion uses configured `base_folder` and `media_source_uri` settings
+- Favorited filenames stored (not full paths) for portability
+- Empty favorites stored as `NULL` rather than empty JSON array
+- All files in burst receive same metadata regardless of individual favorite status
+
 ## [1.5.0] - 2025-12-05
 
 ### Added
