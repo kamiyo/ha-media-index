@@ -26,6 +26,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New database columns: `exif_data.burst_favorites` (TEXT), `exif_data.burst_count` (INTEGER)
   - Database migration automatically adds columns to existing installations
 
+- **Anniversary Mode Support**: Enhanced `get_random_items` service for "On This Day" features
+  - New parameters: `anniversary_month`, `anniversary_day`, `anniversary_window_days`
+  - Wildcards supported: Use `"*"` for any month/day to find all photos matching pattern
+  - Window expansion: `anniversary_window_days` adds ±N days tolerance around target date
+  - SQL date component matching: `strftime('%m', ...)` and `strftime('%d', ...)` for cross-year queries
+  - Designed for Media Card v5.5+ "On This Day" feature showing photos from same date across all years
+
+### Fixed
+
+- **Video Metadata Extraction**
+  - Enhanced video parser with comprehensive filename date extraction fallback
+  - Extracts dates from patterns: `YYYYMMDD_HHMMSS`, `YYYYMMDD-HHMMSS`, `YYYYMMDD`
+  - Final fallback to filesystem dates (`min(ctime, mtime)`) ensures all videos have `date_taken`
+  - Prevents null `date_taken` values that caused incorrect sort order in sequential mode
+  - Gracefully handles mutagen MP4 parsing failures (returns empty objects for some files)
+  - All logging changed from info/warning to debug level to reduce system log noise
+  - Fixes infinite video replay loop when videos with null dates appeared at position 1
+
 ### Service Parameters
 
 **get_related_files** (burst mode):
