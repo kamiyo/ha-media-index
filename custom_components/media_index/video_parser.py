@@ -35,30 +35,43 @@ class VideoMetadataParser:
             if path.suffix.lower() not in {'.mp4', '.m4v', '.mov'}:
                 _LOGGER.debug(f"Skipping non-MP4 file: {file_path}")
                 return None
-                
-            _LOGGER.info(f"[VIDEO] Extracting metadata from: {path.name}")
             
-            video = MP4(file_path)
-            if not video:
-                _LOGGER.warning(f"[VIDEO] Failed to load MP4: {file_path}")
+            # Check if file exists and is readable
+            import os
+            if not os.path.exists(file_path):
+                _LOGGER.error(f"[VIDEO] File not found: {file_path}")
                 return None
-                
-            result: Dict[str, Any] = {}
             
-            # Extract basic video properties from video.info
-            if hasattr(video, 'info') and video.info:
-                _LOGGER.info(f"[VIDEO] video.info attributes: {dir(video.info)}")
+            file_size = os.path.getsize(file_path)
+            _LOGGER.info(f"[VIDEO] Extracting metadata from: {path.name} (size: {file_size} bytes, path: {file_path})")
+            
+            try:
+                video = MP4(file_path)
+            except Exception as load_error:
+                _LOGGER.error(f"[VIDEO] Mutagen failed to load MP4 {path.name}: {type(load_error).__name__}: {load_error}")
+                # Even if mutagen fails, try to extract from filename
+                video = None
                 
-                # Duration in seconds
-                if hasattr(video.info, 'length'):
-                    result['duration'] = round(video.info.length, 2)
-                    _LOGGER.info(f"[VIDEO] Duration: {result['duration']}s")
+            if not video:
+                _LOGGER.warning(f"[VIDEO] Mutagen returned empty object for: {path.name} - will try filename fallback only")
+                result: Dict[str, Any] = {}
+            else:
+                result: Dict[str, Any] = {}
                 
-                # Dimensions (width x height)
-                if hasattr(video.info, 'width') and hasattr(video.info, 'height'):
-                    result['width'] = video.info.width
-                    result['height'] = video.info.height
-                    _LOGGER.info(f"[VIDEO] Dimensions: {result['width']}x{result['height']}")
+                # Extract basic video properties from video.info
+                if hasattr(video, 'info') and video.info:
+                    _LOGGER.info(f"[VIDEO] video.info attributes: {dir(video.info)}")
+                    
+                    # Duration in seconds
+                    if hasattr(video.info, 'length'):
+                        result['duration'] = round(video.info.length, 2)
+                        _LOGGER.info(f"[VIDEO] Duration: {result['duration']}s")
+                    
+                    # Dimensions (width x height)
+                    if hasattr(video.info, 'width') and hasattr(video.info, 'height'):
+                        result['width'] = video.info.width
+                        result['height'] = video.info.height
+                        _LOGGER.info(f"[VIDEO] Dimensions: {result['width']}x{result['height']}")
             
             # Extract creation date from MP4 atoms
             # MP4 files store creation dates in the movie/media/track header atoms
@@ -88,7 +101,7 @@ class VideoMetadataParser:
                 _LOGGER.debug(f"[VIDEO] Failed to inspect MP4 atoms: {e}")
             
             # Method 2: Try QuickTime metadata tags (for files created by Apple/Android devices)
-            if not creation_timestamp:
+            if not creation_timestamp and video:
                 qt_tags = [
                     'com.apple.quicktime.creationdate',
                     '©day',  # Copyright date
@@ -151,7 +164,7 @@ class VideoMetadataParser:
             
             # Extract GPS coordinates from XMP if available
             # MP4 files can store GPS in com.apple.quicktime.location.ISO6709 or XMP
-            if 'com.apple.quicktime.location.ISO6709' in video:
+            if video and 'com.apple.quicktime.location.ISO6709' in video:
                 iso6709 = video['com.apple.quicktime.location.ISO6709'][0]
                 _LOGGER.info(f"[VIDEO] Found GPS (ISO6709): {iso6709}")
                 coords = VideoMetadataParser._parse_iso6709(iso6709)
@@ -165,16 +178,17 @@ class VideoMetadataParser:
             # iTunes-style rating is stored in 'rate' or '----:com.apple.iTunes:rating'
             rating = None
             
-            # Try iTunes rating first (0-5 stars * 20 = 0-100)
-            if 'rate' in video:
+            if video:
+                # Try iTunes rating first (0-5 stars * 20 = 0-100)
+                if 'rate' in video:
                 rate_value = video['rate'][0] if video['rate'] else None
                 if rate_value:
                     # Convert 0-100 to 0-5 stars
                     rating = int(rate_value / 20)
                     _LOGGER.info(f"[VIDEO] Found rating (rate): {rating} stars")
             
-            # Try custom iTunes rating tag
-            if rating is None and '----:com.apple.iTunes:rating' in video:
+                # Try custom iTunes rating tag
+                if rating is None and '----:com.apple.iTunes:rating' in video:
                 rating_bytes = video['----:com.apple.iTunes:rating'][0]
                 try:
                     rating = int(rating_bytes.decode('utf-8'))
