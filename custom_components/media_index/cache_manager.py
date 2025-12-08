@@ -638,6 +638,9 @@ class CacheManager:
         file_type: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        anniversary_month: str | None = None,
+        anniversary_day: str | None = None,
+        anniversary_window_days: int = 0,
         favorites_only: bool = False,
         priority_new_files: bool = False,
         new_files_threshold_seconds: int = 3600
@@ -654,6 +657,9 @@ class CacheManager:
             file_type: Filter by file type ('image' or 'video')
             date_from: Filter by date >= this value (YYYY-MM-DD). Uses EXIF date_taken if available, falls back to created_time.
             date_to: Filter by date <= this value (YYYY-MM-DD). Uses EXIF date_taken if available, falls back to created_time.
+            anniversary_month: Filter by month (1-12) or "*" for any month across years
+            anniversary_day: Filter by day (1-31) or "*" for any day across years
+            anniversary_window_days: Expand anniversary match by ±N days (default 0)
             favorites_only: If True, only return files marked as favorites
             priority_new_files: If True, prioritize recently scanned files
             new_files_threshold_seconds: Threshold in seconds for "new" files (default 1 hour)
@@ -738,6 +744,38 @@ class CacheManager:
                 except (ValueError, TypeError) as e:
                     _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
             
+            # Anniversary filtering: Match month/day across years (supports wildcards)
+            if anniversary_month is not None or anniversary_day is not None:
+                ann_conditions = []
+                
+                # Apply window to day if specified (e.g., day 7 ±3 = days 4-10)
+                if anniversary_day and anniversary_day != "*":
+                    try:
+                        day_int = int(anniversary_day)
+                        if anniversary_window_days > 0:
+                            # Generate day range with window
+                            day_min = max(1, day_int - anniversary_window_days)
+                            day_max = min(31, day_int + anniversary_window_days)
+                            ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN {day_min} AND {day_max}")
+                        else:
+                            # Exact day match
+                            ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {day_int}")
+                    except ValueError:
+                        _LOGGER.warning("Invalid anniversary_day parameter: %s", anniversary_day)
+                # else: wildcard "*" means any day - no condition added
+                
+                # Month matching (no window for month)
+                if anniversary_month and anniversary_month != "*":
+                    try:
+                        month_int = int(anniversary_month)
+                        ann_conditions.append(f"CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {month_int}")
+                    except ValueError:
+                        _LOGGER.warning("Invalid anniversary_month parameter: %s", anniversary_month)
+                # else: wildcard "*" means any month - no condition added
+                
+                if ann_conditions:
+                    new_files_query += " AND (" + " AND ".join(ann_conditions) + ")"
+            
             # V5 IMPROVEMENT: Get ALL recent files, then randomly sample
             # This ensures even distribution - all recent files have equal chance
             # Fixes "last 20" problem where only first 20 recent files were returned
@@ -772,6 +810,9 @@ class CacheManager:
                     file_type=file_type,
                     date_from=date_from,
                     date_to=date_to,
+                    anniversary_month=anniversary_month,
+                    anniversary_day=anniversary_day,
+                    anniversary_window_days=anniversary_window_days,
                     favorites_only=favorites_only
                 )
                 result = new_files + random_files
@@ -853,6 +894,38 @@ class CacheManager:
                 except (ValueError, TypeError) as e:
                     _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
             
+            # Anniversary filtering: Match month/day across years (supports wildcards)
+            if anniversary_month is not None or anniversary_day is not None:
+                ann_conditions = []
+                
+                # Apply window to day if specified (e.g., day 7 ±3 = days 4-10)
+                if anniversary_day and anniversary_day != "*":
+                    try:
+                        day_int = int(anniversary_day)
+                        if anniversary_window_days > 0:
+                            # Generate day range with window
+                            day_min = max(1, day_int - anniversary_window_days)
+                            day_max = min(31, day_int + anniversary_window_days)
+                            ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN {day_min} AND {day_max}")
+                        else:
+                            # Exact day match
+                            ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {day_int}")
+                    except ValueError:
+                        _LOGGER.warning("Invalid anniversary_day parameter: %s", anniversary_day)
+                # else: wildcard "*" means any day - no condition added
+                
+                # Month matching (no window for month)
+                if anniversary_month and anniversary_month != "*":
+                    try:
+                        month_int = int(anniversary_month)
+                        ann_conditions.append(f"CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {month_int}")
+                    except ValueError:
+                        _LOGGER.warning("Invalid anniversary_month parameter: %s", anniversary_month)
+                # else: wildcard "*" means any month - no condition added
+                
+                if ann_conditions:
+                    query += " AND (" + " AND ".join(ann_conditions) + ")"
+            
             query += " ORDER BY RANDOM() LIMIT ?"
             params.append(int(count))
             
@@ -881,6 +954,9 @@ class CacheManager:
         file_type: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        anniversary_month: str | None = None,
+        anniversary_day: str | None = None,
+        anniversary_window_days: int = 0,
         favorites_only: bool = False
     ) -> list[dict]:
         """Get random files excluding specified IDs (helper for priority queue).
@@ -893,6 +969,9 @@ class CacheManager:
             file_type: Optional file type filter
             date_from: Optional date from filter
             date_to: Optional date to filter
+            anniversary_month: Filter by month (1-12) or "*" for any
+            anniversary_day: Filter by day (1-31) or "*" for any
+            anniversary_window_days: Expand anniversary match by ±N days
             
         Returns:
             List of random file records excluding specified IDs
@@ -969,6 +1048,34 @@ class CacheManager:
                 params.append(date_to_str)
             except (ValueError, TypeError) as e:
                 _LOGGER.warning("Invalid date_to parameter: %s - %s", date_to, e)
+        
+        # Anniversary filtering: Match month/day across years (supports wildcards)
+        if anniversary_month is not None or anniversary_day is not None:
+            ann_conditions = []
+            
+            # Apply window to day if specified
+            if anniversary_day and anniversary_day != "*":
+                try:
+                    day_int = int(anniversary_day)
+                    if anniversary_window_days > 0:
+                        day_min = max(1, day_int - anniversary_window_days)
+                        day_max = min(31, day_int + anniversary_window_days)
+                        ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN {day_min} AND {day_max}")
+                    else:
+                        ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {day_int}")
+                except ValueError:
+                    _LOGGER.warning("Invalid anniversary_day parameter: %s", anniversary_day)
+            
+            # Month matching (no window for month)
+            if anniversary_month and anniversary_month != "*":
+                try:
+                    month_int = int(anniversary_month)
+                    ann_conditions.append(f"CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {month_int}")
+                except ValueError:
+                    _LOGGER.warning("Invalid anniversary_month parameter: %s", anniversary_month)
+            
+            if ann_conditions:
+                query += " AND (" + " AND ".join(ann_conditions) + ")"
         
         query += " ORDER BY RANDOM() LIMIT ?"
         params.append(int(count))

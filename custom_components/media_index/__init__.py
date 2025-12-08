@@ -66,6 +66,9 @@ SERVICE_GET_RANDOM_ITEMS_SCHEMA = vol.Schema({
     vol.Optional("file_type"): vol.In(["image", "video"]),
     vol.Optional("date_from"): cv.string,
     vol.Optional("date_to"): cv.string,
+    vol.Optional("anniversary_month"): cv.string,  # "1"-"12" or "*"
+    vol.Optional("anniversary_day"): cv.string,    # "1"-"31" or "*"
+    vol.Optional("anniversary_window_days", default=0): cv.positive_int,
     vol.Optional("priority_new_files", default=False): cv.boolean,
     vol.Optional("new_files_threshold_seconds", default=3600): cv.positive_int,
 }, extra=vol.ALLOW_EXTRA)
@@ -535,6 +538,9 @@ def _register_services(hass: HomeAssistant):
             file_type=call.data.get("file_type"),
             date_from=call.data.get("date_from"),
             date_to=call.data.get("date_to"),
+            anniversary_month=call.data.get("anniversary_month"),
+            anniversary_day=call.data.get("anniversary_day"),
+            anniversary_window_days=call.data.get("anniversary_window_days", 0),
             favorites_only=call.data.get("favorites_only", False),
             priority_new_files=call.data.get("priority_new_files", False),
             new_files_threshold_seconds=call.data.get("new_files_threshold_seconds", 3600),

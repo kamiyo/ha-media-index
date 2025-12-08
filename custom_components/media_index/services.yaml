@@ -45,6 +45,27 @@ get_random_items:
       example: "2023-12-31"
       selector:
         date:
+    anniversary_month:
+      name: Anniversary Month
+      description: "Filter by month (1-12) across any year. Use with anniversary_day for 'On This Day' queries. Supports wildcard: use '*' for any month."
+      example: "12"
+      selector:
+        text:
+    anniversary_day:
+      name: Anniversary Day
+      description: "Filter by day of month (1-31) across any year. Use with anniversary_month for 'On This Day' queries. Supports wildcard: use '*' for any day."
+      example: "25"
+      selector:
+        text:
+    anniversary_window_days:
+      name: Anniversary Window Days
+      description: "Expand anniversary match by ±N days. E.g., anniversary_day=7 with window=3 matches days 4-10."
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 31
+          mode: box
     favorites_only:
       name: Favorites Only
       description: If true, only return files marked as favorites
