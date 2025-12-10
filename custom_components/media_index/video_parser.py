@@ -84,7 +84,6 @@ class VideoMetadataParser:
                                 if coords:
                                     result['latitude'] = coords[0]
                                     result['longitude'] = coords[1]
-                                    result['has_coordinates'] = True
                                     _LOGGER.debug(f"[VIDEO] GPS coordinates: {coords[0]}, {coords[1]}")
                             
                             # Extract rating (if available)
@@ -148,7 +147,6 @@ class VideoMetadataParser:
                         if coords:
                             result['latitude'] = coords[0]
                             result['longitude'] = coords[1]
-                            result['has_coordinates'] = True
                             _LOGGER.debug(f"[VIDEO] GPS coordinates: {coords[0]}, {coords[1]}")
                     
                     # If pymediainfo didn't find duration/dimensions, try mutagen
