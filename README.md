@@ -33,8 +33,16 @@ A custom Home Assistant integration that indexes media files (images and videos)
 - **Smart random selection** with exclusion tracking
 - **Ordered selection** by date, path, filename ascending or descending
 - **Filter by** folder, file type, date range, favorites
+- **Anniversary mode** for "Through the Years" features - find photos from the same date across all years
 - **Session management** to avoid repetition within slideshow sessions
 - **Efficient querying** from SQLite database
+
+### 📸 Burst Detection & Review
+- **Time-based burst detection** - find photos taken within ±N seconds of a reference photo (default ±2 minutes)
+- **GPS-based filtering** - match photos by location proximity using Haversine distance (default 50 meters)
+- **Automatic fallback** to time-only matching when GPS data unavailable
+- **Burst metadata persistence** - save favorite selections and burst counts to file metadata
+- **Historical tracking** - burst review data persists even if files are deleted
 
 ### 🗑️ File Management
 - **Delete media** - moves files to `_Junk` folder
@@ -132,7 +140,9 @@ service: media_index.restore_edited_files
 
 The integration provides additional services for advanced use cases and Media Card integration. See [SERVICES.md](docs/SERVICES.md) for complete documentation of all available services including:
 
-- `get_random_items` - Random media selection (used by Media Card)
+- `get_random_items` - Random media selection with anniversary mode support (used by Media Card)
+- `get_related_files` - Find related photos by date/time or burst detection mode
+- `update_burst_metadata` - Save burst review session data to file metadata
 - `mark_favorite` - Toggle favorite status
 - `delete_media` - Move files to `_Junk` folder
 - `mark_for_edit` - Move files to `_Edit` folder

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Configurable sort order: chronological (`time_asc`) or reverse (`time_desc`)
   - Returns `seconds_offset` and `distance_meters` for each matching photo
   - Same-year restriction prevents cross-year matches for burst detection
-  - Designed for Media Card v5.5+ "At This Moment" burst review feature
+  - Designed for Media Card v5.5+ "Burst Review" feature
   - Example use case: Compare rapid-fire shots to select the best photo for keeping
 
 - **Burst Metadata Persistence**: New `update_burst_metadata` service for tracking burst review sessions
@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Wildcards supported: Use `"*"` for any month/day to find all photos matching pattern
   - Window expansion: `anniversary_window_days` adds ±N days tolerance around target date
   - SQL date component matching: `strftime('%m', ...)` and `strftime('%d', ...)` for cross-year queries
-  - Designed for Media Card v5.5+ "On This Day" feature showing photos from same date across all years
+  - Designed for Media Card v5.5+ "Through the Years" feature showing photos from same date across all years
 
 ### Fixed
 
