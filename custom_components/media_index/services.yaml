@@ -178,7 +178,7 @@ get_file_metadata:
 
 get_related_files:
   name: Get Related Files
-  description: Get files related to a reference photo (burst detection or anniversary photos from same day across years)
+  description: Get files related to a reference photo (burst detection - photos taken within minutes)
   target:
     entity:
       integration: media_index
@@ -193,8 +193,6 @@ get_related_files:
           options:
             - label: "Burst (photos within minutes)"
               value: "burst"
-            - label: "Anniversary (same day across years)"
-              value: "anniversary"
     reference_path:
       name: Reference File Path
       description: Full filesystem path to the reference media file (use media_source_uri instead when possible)

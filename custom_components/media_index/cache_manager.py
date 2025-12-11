@@ -724,7 +724,6 @@ class CacheManager:
             if date_from is not None:
                 # Validate date_from is a valid date string using datetime.strptime
                 try:
-                    from datetime import datetime
                     date_from_str = str(date_from) if not isinstance(date_from, str) else date_from
                     # Proper validation with datetime.strptime - prevents invalid dates like 2024-13-45
                     datetime.strptime(date_from_str, "%Y-%m-%d")
@@ -736,7 +735,6 @@ class CacheManager:
             if date_to is not None:
                 # Validate date_to is a valid date string using datetime.strptime
                 try:
-                    from datetime import datetime
                     date_to_str = str(date_to) if not isinstance(date_to, str) else date_to
                     # Proper validation with datetime.strptime - prevents invalid dates like 2024-13-45
                     datetime.strptime(date_to_str, "%Y-%m-%d")
@@ -757,10 +755,12 @@ class CacheManager:
                             # Generate day range with window
                             day_min = max(1, day_int - anniversary_window_days)
                             day_max = min(31, day_int + anniversary_window_days)
-                            ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN {day_min} AND {day_max}")
+                            ann_conditions.append("CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN ? AND ?")
+                            params.extend([day_min, day_max])
                         else:
                             # Exact day match
-                            ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {day_int}")
+                            ann_conditions.append("CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = ?")
+                            params.append(day_int)
                     except ValueError:
                         _LOGGER.warning("Invalid anniversary_day parameter: %s", anniversary_day)
                 # else: wildcard "*" means any day - no condition added
@@ -769,7 +769,8 @@ class CacheManager:
                 if anniversary_month and anniversary_month != "*":
                     try:
                         month_int = int(anniversary_month)
-                        ann_conditions.append(f"CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {month_int}")
+                        ann_conditions.append("CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = ?")
+                        params.append(month_int)
                     except ValueError:
                         _LOGGER.warning("Invalid anniversary_month parameter: %s", anniversary_month)
                 # else: wildcard "*" means any month - no condition added
@@ -1032,7 +1033,6 @@ class CacheManager:
         if date_from is not None:
             # Validate date_from is a valid date string
             try:
-                from datetime import datetime
                 date_from_str = str(date_from) if not isinstance(date_from, str) else date_from
                 datetime.strptime(date_from_str, "%Y-%m-%d")
                 query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') >= ?"
@@ -1043,7 +1043,6 @@ class CacheManager:
         if date_to is not None:
             # Validate date_to is a valid date string
             try:
-                from datetime import datetime
                 date_to_str = str(date_to) if not isinstance(date_to, str) else date_to
                 datetime.strptime(date_to_str, "%Y-%m-%d")
                 query += " AND DATE(COALESCE(e.date_taken, m.created_time), 'unixepoch') <= ?"
@@ -1062,9 +1061,11 @@ class CacheManager:
                     if anniversary_window_days > 0:
                         day_min = max(1, day_int - anniversary_window_days)
                         day_max = min(31, day_int + anniversary_window_days)
-                        ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN {day_min} AND {day_max}")
+                        ann_conditions.append("CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) BETWEEN ? AND ?")
+                        params.extend([day_min, day_max])
                     else:
-                        ann_conditions.append(f"CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {day_int}")
+                        ann_conditions.append("CAST(strftime('%d', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = ?")
+                        params.append(day_int)
                 except ValueError:
                     _LOGGER.warning("Invalid anniversary_day parameter: %s", anniversary_day)
             
@@ -1072,7 +1073,8 @@ class CacheManager:
             if anniversary_month and anniversary_month != "*":
                 try:
                     month_int = int(anniversary_month)
-                    ann_conditions.append(f"CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = {month_int}")
+                    ann_conditions.append("CAST(strftime('%m', COALESCE(e.date_taken, m.created_time), 'unixepoch') AS INTEGER) = ?")
+                    params.append(month_int)
                 except ValueError:
                     _LOGGER.warning("Invalid anniversary_month parameter: %s", anniversary_month)
             

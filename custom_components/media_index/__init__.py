@@ -686,14 +686,12 @@ def _register_services(hass: HomeAssistant):
             _LOGGER.info("Found %d burst photos for %s", len(items), reference_path)
             
         elif mode == "anniversary":
-            # Anniversary mode - photos from same day across years
-            items = await cache_manager.get_anniversary_photos(
-                reference_path=reference_path,
-                window_days=call.data.get("window_days", 3),
-                years_back=call.data.get("years_back", 15),
-                sort_order=sort_order
-            )
-            _LOGGER.info("Found %d anniversary photos for %s", len(items), reference_path)
+            # Anniversary mode - NOT YET IMPLEMENTED
+            _LOGGER.error("Anniversary mode is not yet implemented")
+            return {
+                "error": "Anniversary mode is not yet implemented. Use 'burst' mode or anniversary filters in get_random_items service.",
+                "items": []
+            }
         
         else:
             return {"error": f"Invalid mode: {mode}", "items": []}
@@ -1052,7 +1050,7 @@ def _register_services(hass: HomeAssistant):
                     stale_files.append({"id": file_id, "path": file_path})
                     if not dry_run:
                         # Remove from database
-                        await cache_manager.remove_file(file_path)
+                        await cache_manager.delete_file(file_path)
                         _LOGGER.info("Removed stale entry: %s", file_path)
                 
                 # Yield control every 10 files
