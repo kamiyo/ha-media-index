@@ -13,7 +13,7 @@ A custom Home Assistant integration that indexes media files (images and videos)
 - **File type detection** for images (JPG, PNG, HEIC, etc.) and videos (MP4, MOV, AVI, etc.)
 - **Real-time monitoring** with file system watcher for instant updates
 - **EXIF metadata extraction** for images (GPS, date taken, camera info)
-- **Video metadata extraction** for MP4/MOV files (creation date, GPS coordinates)
+- **Video metadata extraction** for MP4/MOV files (creation date, GPS coordinates - see installation prerequisites below)
 
 ### 🌍 Geocoding
 - **Reverse geocoding** of GPS coordinates to location names
@@ -59,7 +59,7 @@ The integration uses `pymediainfo` (Python package) which requires the `libmedia
 
 **Home Assistant OS/Supervised (Docker):**
 ```bash
-# SSH into your Home Assistant container
+# SSH into your Home Assistant container or use the Terminal add-on available in Home Assistant OS
 docker exec -it homeassistant bash
 
 # Install libmediainfo
@@ -84,13 +84,17 @@ brew install media-info
 **Note:** If `libmediainfo` is not installed, video metadata extraction will be limited (no GPS or date extraction from videos). Image metadata extraction is unaffected.
 
 ### HACS (Recommended)
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=markaggar&repository=ha-media-index&category=integration)
+
+or
+
 1. Open HACS in Home Assistant
 2. Click "Integrations"
-3. Click the three dots in the top right and select "Custom repositories"
-4. Add `https://github.com/markaggar/ha-media-index` as an Integration
-5. Click "Install"
-6. **Install libmediainfo** (see Prerequisites above if you need video metadata)
-7. Restart Home Assistant
+3. Search for 'Media Index'
+4. Click "Install"
+5. **Install libmediainfo** (see Prerequisites above if you need video metadata)
+6. Restart Home Assistant
 
 ### Manual
 1. Copy the `custom_components/media_index` folder to your Home Assistant `custom_components` directory
@@ -103,10 +107,10 @@ brew install media-info
 2. Click **Add Integration**
 3. Search for "Media Index"
 4. Enter your base media folder path (e.g., `/media/Photos`)
-5. If your Media folders in the front end media browse dialogs are not prefixed by 'media-source://media_source/media', then copy and paste the full media-source:// URI (from the HA Media Card config) that points to the same place as the the base media folder you specified in the previous step. It is critical that these both point to the same folder structure, e.g.: 
+5. If your Media folders in the front end media browse dialogs are not prefixed by 'media-source://media_source/media', then copy and paste the full media-source:// URI (from the HA Media Card config) that points to the same place as the base media folder you specified in the previous step. It is critical that these both point to the same folder structure, e.g.: 
    - base media folder: /config/www/local
-   - media source Uri: media-source://media_source/local  
-8. Configure optional settings (watched folders, EXIF extraction, geocoding)
+   - media source URI: media-source://media_source/local  
+6. Configure optional settings (watched folders, EXIF extraction, geocoding)
 
 💡 **Multi-Instance Support:** You can add multiple instances with different base folders (e.g., one for Photos, one for Videos) by repeating this process with different folder paths.
 
