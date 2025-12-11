@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+_LOGGER = logging.getLogger(__name__)
+
 try:
     from pymediainfo import MediaInfo
     PYMEDIAINFO_AVAILABLE = True
@@ -25,8 +27,6 @@ try:
     MUTAGEN_AVAILABLE = True
 except ImportError:
     MUTAGEN_AVAILABLE = False
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class VideoMetadataParser:
@@ -86,14 +86,23 @@ class VideoMetadataParser:
                                         _LOGGER.debug(f"[VIDEO] Extracted datetime from {field}: {parsed_dt}")
                                         break
                             
-                            # Extract GPS coordinates from xyz field (ISO 6709 format)
-                            if hasattr(track, 'xyz') and track.xyz:
-                                _LOGGER.debug(f"[VIDEO] Found GPS (xyz/ISO6709): {track.xyz}")
-                                coords = VideoMetadataParser._parse_iso6709(track.xyz)
+                            # Extract GPS coordinates (check both xyz and recorded_location fields)
+                            gps_iso6709 = None
+                            if hasattr(track, 'recorded_location') and track.recorded_location:
+                                gps_iso6709 = track.recorded_location
+                                _LOGGER.debug(f"[VIDEO] Found GPS in recorded_location field")
+                            elif hasattr(track, 'xyz') and track.xyz:
+                                gps_iso6709 = track.xyz
+                                _LOGGER.debug(f"[VIDEO] Found GPS in xyz field")
+                            
+                            if gps_iso6709:
+                                coords = VideoMetadataParser._parse_iso6709(gps_iso6709)
                                 if coords:
                                     result['latitude'] = coords[0]
                                     result['longitude'] = coords[1]
-                                    _LOGGER.debug(f"[VIDEO] GPS coordinates: {coords[0]}, {coords[1]}")
+                                    _LOGGER.debug(f"[VIDEO] GPS coordinates extracted successfully")
+                                else:
+                                    _LOGGER.warning(f"[VIDEO] Failed to parse ISO6709 GPS format")
                             
                             # Extract rating (if available)
                             if hasattr(track, 'rating') and track.rating:
@@ -153,12 +162,12 @@ class VideoMetadataParser:
                     # Extract GPS coordinates
                     if 'com.apple.quicktime.location.ISO6709' in video:
                         iso6709 = video['com.apple.quicktime.location.ISO6709'][0]
-                        _LOGGER.debug(f"[VIDEO] Found GPS (ISO6709): {iso6709}")
+                        _LOGGER.debug(f"[VIDEO] Found GPS (ISO6709 via mutagen): {iso6709}")
                         coords = VideoMetadataParser._parse_iso6709(iso6709)
                         if coords:
                             result['latitude'] = coords[0]
                             result['longitude'] = coords[1]
-                            _LOGGER.debug(f"[VIDEO] GPS coordinates: {coords[0]}, {coords[1]}")
+                            _LOGGER.debug(f"[VIDEO] GPS coordinates from mutagen: {coords[0]}, {coords[1]}")
                     
                     # If pymediainfo didn't find duration/dimensions, try mutagen
                     if 'duration' not in result and hasattr(video, 'info') and hasattr(video.info, 'length'):

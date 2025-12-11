@@ -51,17 +51,51 @@ A custom Home Assistant integration that indexes media files (images and videos)
 
 ## Installation
 
+### Prerequisites
+
+**For Video Metadata Extraction (GPS, Date):**
+
+The integration uses `pymediainfo` (Python package) which requires the `libmediainfo` system library. This library is **NOT automatically installed** by HACS.
+
+**Home Assistant OS/Supervised (Docker):**
+```bash
+# SSH into your Home Assistant container
+docker exec -it homeassistant bash
+
+# Install libmediainfo
+apk add libmediainfo
+
+# Exit and restart Home Assistant
+exit
+```
+
+**Home Assistant Core (Manual Install):**
+```bash
+# Debian/Ubuntu
+sudo apt-get install libmediainfo-dev
+
+# Fedora/RHEL
+sudo dnf install libmediainfo-devel
+
+# macOS
+brew install media-info
+```
+
+**Note:** If `libmediainfo` is not installed, video metadata extraction will be limited (no GPS or date extraction from videos). Image metadata extraction is unaffected.
+
 ### HACS (Recommended)
 1. Open HACS in Home Assistant
 2. Click "Integrations"
 3. Click the three dots in the top right and select "Custom repositories"
 4. Add `https://github.com/markaggar/ha-media-index` as an Integration
 5. Click "Install"
-6. Restart Home Assistant
+6. **Install libmediainfo** (see Prerequisites above if you need video metadata)
+7. Restart Home Assistant
 
 ### Manual
 1. Copy the `custom_components/media_index` folder to your Home Assistant `custom_components` directory
-2. Restart Home Assistant
+2. **Install libmediainfo** (see Prerequisites above if you need video metadata)
+3. Restart Home Assistant
 
 ## Configuration
 
