@@ -48,13 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Video Metadata Extraction** (Enhanced in v1.5.0)
-  - **NEW**: Integrated `pymediainfo` library for reliable datetime extraction from MP4/MOV files
-  - **Primary method**: MediaInfo `encoded_date` field (proven to work on all tested videos)
-  - **Fallback methods**: Filename patterns → filesystem timestamps
-  - Successfully extracts `Create Date` from MP4 video headers (verified on Android, Samsung, and iPhone videos)
+  - **NEW**: Integrated `pymediainfo` library for comprehensive video metadata extraction
+  - **Extracts from pymediainfo**:
+    - DateTime: `encoded_date`, `tagged_date`, `recorded_date`, `mastered_date` fields
+    - GPS: `recorded_location` field (Android/Samsung) or `xyz` field (other formats)
+    - Dimensions: `width` and `height` from Video track
+    - Duration: Converted from milliseconds to seconds
+    - Rating: 0-5 star rating from General track
+  - **Fallback methods**: 
+    - Rating: mutagen MP4 tags (iTunes-style rating)
+    - DateTime: Filename patterns → filesystem timestamps
+  - **System Requirements**: Requires `libmediainfo` system library (see README Prerequisites)
+  - Successfully tested on Android, Samsung, and iPhone videos
   - Tested datetime formats: "2020-05-16 03:37:57 UTC", "2025-07-06 01:28:44"
-  - Extracts dimensions, duration, rating, and GPS coordinates from mutagen tags
-  - Gracefully handles mutagen MP4 parsing failures with pymediainfo fallback
   - All logging changed from info/warning to debug level to reduce system log noise
   - Prevents null `date_taken` values that caused incorrect sort order in sequential mode
   - Fixes infinite video replay loop when videos with null dates appeared at position 1
