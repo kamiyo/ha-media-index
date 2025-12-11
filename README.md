@@ -59,7 +59,7 @@ The integration uses `pymediainfo` (Python package) which requires the `libmedia
 
 **Home Assistant OS/Supervised (Docker):**
 ```bash
-# SSH into your Home Assistant container or use the Terminal add-on available in Home Assistant OS
+# SSH into your Home Assistant container or use the [Advanced SSH & Web Terminal](https://github.com/hassio-addons/addon-ssh) add-on available in Home Assistant OS
 docker exec -it homeassistant bash
 
 # Install libmediainfo
