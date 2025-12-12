@@ -199,6 +199,21 @@ class CacheManager:
             ON move_history(restored)
         """)
         
+        # Geocode stats table for tracking cache hit rate
+        await self._db.execute("""
+            CREATE TABLE IF NOT EXISTS geocode_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                cache_hits INTEGER DEFAULT 0,
+                cache_misses INTEGER DEFAULT 0
+            )
+        """)
+        
+        # Initialize stats row if it doesn't exist
+        await self._db.execute("""
+            INSERT OR IGNORE INTO geocode_stats (id, cache_hits, cache_misses)
+            VALUES (1, 0, 0)
+        """)
+        
         await self._db.commit()
         _LOGGER.debug("Database schema created/verified")
         
@@ -293,9 +308,9 @@ class CacheManager:
         if os.path.exists(self.db_path):
             cache_size_mb = os.path.getsize(self.db_path) / (1024 * 1024)
         
-        # Get files with location data
+        # Get files with geocoded location data (location_city indicates geocoding completed)
         async with self._db.execute(
-            "SELECT COUNT(*) FROM exif_data WHERE latitude IS NOT NULL AND longitude IS NOT NULL"
+            "SELECT COUNT(*) FROM exif_data WHERE location_city IS NOT NULL AND location_city != ''"
         ) as cursor:
             row = await cursor.fetchone()
             files_with_location = row[0] if row else 0
@@ -304,6 +319,19 @@ class CacheManager:
         async with self._db.execute("SELECT COUNT(*) FROM geocode_cache") as cursor:
             row = await cursor.fetchone()
             geocode_cache_entries = row[0] if row else 0
+        
+        # Get geocode hit rate
+        geocode_hit_rate = 0.0
+        async with self._db.execute(
+            "SELECT cache_hits, cache_misses FROM geocode_stats WHERE id = 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                cache_hits = row[0] or 0
+                cache_misses = row[1] or 0
+                total_lookups = cache_hits + cache_misses
+                if total_lookups > 0:
+                    geocode_hit_rate = (cache_hits / total_lookups) * 100
         
         # Get last scan time
         last_scan_time = None
@@ -322,6 +350,7 @@ class CacheManager:
             "cache_size_mb": round(cache_size_mb, 2),
             "files_with_location": files_with_location,
             "geocode_cache_entries": geocode_cache_entries,
+            "geocode_hit_rate": round(geocode_hit_rate, 1),
             "last_scan_time": last_scan_time,
         }
     
@@ -498,6 +527,12 @@ class CacheManager:
         """, (round(latitude, 3), round(longitude, 3), 3)) as cursor:
             row = await cursor.fetchone()
             if row:
+                # Increment cache hits
+                await self._db.execute("""
+                    UPDATE geocode_stats SET cache_hits = cache_hits + 1 WHERE id = 1
+                """)
+                await self._db.commit()
+                
                 return {
                     'location_name': row[0],
                     'location_city': row[1],
@@ -533,6 +568,11 @@ class CacheManager:
             location_data.get('location_country', ''),
             int(datetime.now().timestamp())
         ))
+        
+        # Increment cache misses (this is called after API lookup)
+        await self._db.execute("""
+            UPDATE geocode_stats SET cache_misses = cache_misses + 1 WHERE id = 1
+        """)
         
         await self._db.commit()
     
