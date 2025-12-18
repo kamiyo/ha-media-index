@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.0] - 2025-12-17
+## [1.5.1] - 2025-12-17
 
 ### Added
 
@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - When `use_native_language` is disabled, location names are returned in your HA instance's language setting
   - Falls back to English if language not configured
   - Benefits international users who want location names in their preferred language (e.g., German HA → German location names)  
+
+## [1.5.0] - 2025-12-14
+
+### Added
 
 - **Burst Detection Mode**: New `mode: burst` parameter for `get_related_files` service
   - Time-based filtering: ±N seconds around reference photo's timestamp (default ±2 minutes)
