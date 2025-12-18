@@ -5,9 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.0] - 2025-12-06
+## [1.5.0] - 2025-12-17
 
 ### Added
+
+- **Automatic libmediainfo Installation**: New `auto_install_libmediainfo` configuration option (default: true)
+  - Automatically installs libmediainfo system library on integration startup
+  - Simplifies video metadata extraction setup for Home Assistant OS/Supervised users
+  - ⚠️ **Note**: After each Home Assistant core upgrade, an additional restart will be required to reinstall the system library
+
+- **Geocoding Language Support**: Geocoding now respects Home Assistant's configured language
+  - When `use_native_language` is disabled, location names are returned in your HA instance's language setting
+  - Falls back to English if language not configured
+  - Benefits international users who want location names in their preferred language (e.g., German HA → German location names)  
 
 - **Burst Detection Mode**: New `mode: burst` parameter for `get_related_files` service
   - Time-based filtering: ±N seconds around reference photo's timestamp (default ±2 minutes)
@@ -82,7 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Resolves "extra keys not allowed @ data['entity_id']" error when using target selector
   - Service now works correctly with both target selector and direct service calls
 
-- **Video Metadata Extraction** (Enhanced in v1.5.0)
+- **Video Metadata Extraction**
   - **NEW**: Integrated `pymediainfo` library for comprehensive video metadata extraction
   - **Extracts from pymediainfo**:
     - DateTime: `encoded_date`, `tagged_date`, `recorded_date`, `mastered_date` fields
