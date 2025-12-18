@@ -1385,11 +1385,11 @@ class CacheManager:
             ])
         
         # Execute query
-        _LOGGER.info("Burst query params: %s", params)
+        _LOGGER.debug("Burst query params: %s", params)
         async with self._db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
         
-        _LOGGER.info("Burst query returned %d rows", len(rows))
+        _LOGGER.debug("Burst query returned %d rows", len(rows))
         return [dict(row) for row in rows]
     
     async def get_anniversary_photos(
