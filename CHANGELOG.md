@@ -14,9 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration loads normally with video metadata extraction immediately available
   - No integration reload, no delay, no complexity - it just works
   - Manual `install_libmediainfo` service still auto-reloads for existing installations
-  - Previous version required integration reload after install - now completely seamless
+  - Quick network check (5s) fails fast when internet is down
+  - Reduced timeouts: APK 30s, APT 60s (was 60s/120s)
 
 ### Fixed
+
+- **Graceful Scan Abort on Database Closure**: Prevents log spam when integration reloads during scan
+  - Detects "no active connection" errors and aborts scan immediately
+  - Prevents 1000+ error log entries when database is closed during active scan
+  - Rate limits other scan errors to max 10 log entries per scan
+  - Clear warning message when scan is aborted due to database closure
+  - Resolves "Module is logging too frequently" warnings
 
 - **Blocking I/O Warning**: Fixed blocking call to `Image.open()` in file watcher/manual scan context
   - EXIF extraction now runs in executor thread when scanning individual files
