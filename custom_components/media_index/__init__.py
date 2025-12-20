@@ -359,6 +359,26 @@ async def _install_libmediainfo_internal(hass: HomeAssistant, entry_id: str | No
     
     _LOGGER.info("📦 Installing libmediainfo system library...")
     
+    # Quick network check - fail fast if internet is down
+    try:
+        # Try to reach Alpine package repository with 5 second timeout
+        subprocess.run(
+            ["wget", "--spider", "--timeout=5", "https://dl-cdn.alpinelinux.org/alpine/"],
+            capture_output=True,
+            timeout=6,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        _LOGGER.warning(
+            "⚠️ Internet connectivity check failed - skipping libmediainfo installation. "
+            "Integration will continue loading without video metadata support. "
+            "Install manually later with: apk add --no-cache libmediainfo"
+        )
+        return {
+            "status": "failed",
+            "message": "Network connectivity check failed - cannot download package. Try again when internet is available."
+        }
+    
     try:
         # Try apk (Alpine/Home Assistant OS)
         subprocess.run(
@@ -505,6 +525,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if auto_install:
             _LOGGER.warning(
                 "🔧 Auto-install enabled - installing libmediainfo before continuing setup..."
+            )
+            _LOGGER.info(
+                "Note: If internet is down, installation will timeout after 30-60 seconds and integration will continue loading"
             )
             # Install synchronously during setup (no entry_id needed since we're not reloading)
             result = await _install_libmediainfo_internal(hass, entry_id=None)
