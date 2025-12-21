@@ -279,7 +279,7 @@ class MediaScanner:
                                 # Try to update scan status, but it will likely fail
                                 try:
                                     await self.cache.update_scan(scan_id, files_added, "aborted")
-                                except:
+                                except Exception:
                                     pass  # Expected to fail if DB is closed
                             return files_added
                         
