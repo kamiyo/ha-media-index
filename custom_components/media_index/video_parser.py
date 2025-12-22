@@ -80,14 +80,12 @@ class VideoMetadataParser:
                             for field in datetime_fields:
                                 value = getattr(track, field, None)
                                 if value:
-                                    _LOGGER.debug(f"[VIDEO] Testing {field}: {value}")
+                                    _LOGGER.debug(f"[VIDEO] Found {field}: {value}")
                                     parsed_dt = VideoMetadataParser._parse_mediainfo_datetime(value)
                                     if parsed_dt:
                                         result['date_taken'] = int(parsed_dt.timestamp())
-                                        _LOGGER.debug(f"[VIDEO] ✅ Used {field} → {parsed_dt}")
+                                        _LOGGER.debug(f"[VIDEO] Extracted datetime from {field}: {parsed_dt}")
                                         break
-                                    else:
-                                        _LOGGER.debug(f"[VIDEO] ❌ Failed to parse {field}, trying next...")
                             
                             # Extract GPS coordinates (check Apple QuickTime, xyz, and recorded_location fields)
                             gps_iso6709 = None
