@@ -75,20 +75,26 @@ class VideoMetadataParser:
                         # Extract datetime from General track
                         if track.track_type == "General":
                             # Priority order for datetime fields
-                            datetime_fields = ['encoded_date', 'tagged_date', 'recorded_date', 'mastered_date']
+                            # Apple QuickTime creation date is most reliable for iPhone videos
+                            datetime_fields = ['comapplequicktimecreationdate', 'recorded_date', 'encoded_date', 'tagged_date', 'mastered_date']
                             for field in datetime_fields:
                                 value = getattr(track, field, None)
                                 if value:
-                                    _LOGGER.debug(f"[VIDEO] Found {field}: {value}")
+                                    _LOGGER.debug(f"[VIDEO] Testing {field}: {value}")
                                     parsed_dt = VideoMetadataParser._parse_mediainfo_datetime(value)
                                     if parsed_dt:
                                         result['date_taken'] = int(parsed_dt.timestamp())
-                                        _LOGGER.debug(f"[VIDEO] Extracted datetime from {field}: {parsed_dt}")
+                                        _LOGGER.debug(f"[VIDEO] ✅ Used {field} → {parsed_dt}")
                                         break
+                                    else:
+                                        _LOGGER.debug(f"[VIDEO] ❌ Failed to parse {field}, trying next...")
                             
-                            # Extract GPS coordinates (check both xyz and recorded_location fields)
+                            # Extract GPS coordinates (check Apple QuickTime, xyz, and recorded_location fields)
                             gps_iso6709 = None
-                            if hasattr(track, 'recorded_location') and track.recorded_location:
+                            if hasattr(track, 'comapplequicktimelocationiso6709') and track.comapplequicktimelocationiso6709:
+                                gps_iso6709 = track.comapplequicktimelocationiso6709
+                                _LOGGER.debug(f"[VIDEO] Found GPS in comapplequicktimelocationiso6709 field")
+                            elif hasattr(track, 'recorded_location') and track.recorded_location:
                                 gps_iso6709 = track.recorded_location
                                 _LOGGER.debug(f"[VIDEO] Found GPS in recorded_location field")
                             elif hasattr(track, 'xyz') and track.xyz:
@@ -239,9 +245,13 @@ class VideoMetadataParser:
     
     @staticmethod
     def _parse_mediainfo_datetime(date_str: str) -> Optional[datetime]:
-        """Parse datetime from MediaInfo encoded_date field.
+        """Parse datetime from MediaInfo date field.
         
-        MediaInfo typically returns: "2020-05-16 03:37:57 UTC" or "2025-07-06 01:28:44"
+        MediaInfo returns various formats:
+        - "2020-05-16 03:37:57 UTC" (generic videos)
+        - "2021-07-10T12:37:11+0200" (Apple QuickTime with timezone)
+        - "2025-07-06 01:28:44" (simple format)
+        - "2021-07-10T12:37:11+0200 / 2021-07-10T12:37:11+0200 / 2021-07-10T12:37:11+0200" (multiple values)
         
         Args:
             date_str: Date string from MediaInfo
@@ -252,8 +262,22 @@ class VideoMetadataParser:
         if not date_str:
             return None
         
+        # Handle multiple values separated by " / " - take the first one
+        if ' / ' in date_str:
+            date_str = date_str.split(' / ')[0].strip()
+            _LOGGER.debug(f"[VIDEO] Split multiple values, using first: {date_str}")
+        
         # Remove " UTC" suffix if present
         date_str = date_str.replace(' UTC', '').strip()
+        
+        # Try ISO 8601 with timezone first (handles Apple QuickTime format)
+        try:
+            dt = datetime.fromisoformat(date_str)
+            _LOGGER.debug(f"[VIDEO] Parsed with fromisoformat: {dt}")
+            return dt
+        except (ValueError, AttributeError) as e:
+            _LOGGER.debug(f"[VIDEO] fromisoformat failed for '{date_str}': {e}")
+            pass
         
         # Try common MediaInfo formats
         date_formats = [
@@ -276,7 +300,9 @@ class VideoMetadataParser:
     def _parse_iso6709(iso6709_str: str) -> Optional[tuple[float, float]]:
         """Parse ISO 6709 location string into latitude/longitude.
         
-        ISO 6709 format: +40.7484-073.9857/ (latitude, longitude, optional altitude)
+        ISO 6709 format examples:
+        - +40.7484-073.9857/ (latitude, longitude)
+        - +52.4915+009.6692+049.668/ (latitude, longitude, altitude)
         
         Args:
             iso6709_str: ISO 6709 formatted location string
@@ -289,13 +315,20 @@ class VideoMetadataParser:
             iso6709_str = iso6709_str.rstrip('/')
             
             # Find the split between lat/lon (look for second +/-)
-            # Format: +/-XX.XXXX+/-XXX.XXXX
+            # Format: +/-XX.XXXX+/-XXX.XXXX+/-ALT
             lat_end = 1  # Skip first sign
             while lat_end < len(iso6709_str) and iso6709_str[lat_end] not in ['+', '-']:
                 lat_end += 1
             
             lat_str = iso6709_str[:lat_end]
-            lon_str = iso6709_str[lat_end:].split('/')[0]  # Remove altitude if present
+            
+            # Find end of longitude (look for third +/- which indicates altitude)
+            remaining = iso6709_str[lat_end:]
+            lon_end = 1  # Skip the lon sign
+            while lon_end < len(remaining) and remaining[lon_end] not in ['+', '-']:
+                lon_end += 1
+            
+            lon_str = remaining[:lon_end]
             
             latitude = float(lat_str)
             longitude = float(lon_str)

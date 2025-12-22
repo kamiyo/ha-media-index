@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2025-12-21
+
+### Fixed
+
+- **iPhone Video Metadata Extraction**: Fixed date extraction from iPhone .mov files
+  - Added support for Apple QuickTime `recorded_date` field (contains correct capture date)
+  - Parser now handles multiple datetime values separated by " / " (takes first occurrence)
+  - Fixed ISO 8601 timezone parsing for formats like "2021-07-10T12:37:11+0200"
+  - GPS extraction already working via `comapplequicktimelocationiso6709` field
+  - Resolves issue where iPhone videos showed file modification date instead of actual capture date
+
 ## [1.5.3] - 2025-12-20
 
 ### Changed
