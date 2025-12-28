@@ -46,6 +46,7 @@ from .const import (
     SERVICE_CLEANUP_DATABASE,
     SERVICE_UPDATE_BURST_METADATA,
     SERVICE_INSTALL_LIBMEDIAINFO,
+    SERVICE_CHECK_FILE_EXISTS,
 )
 from .cache_manager import CacheManager
 from .scanner import MediaScanner
@@ -620,10 +621,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         _LOGGER.info("Startup scan disabled by configuration")
     
-    # Start file system watcher if enabled
+    # Start file system watcher if enabled AND watched_folders are specified
+    # Without watched_folders, the watcher would monitor the entire base folder which
+    # is resource-intensive for large collections. Use scheduled scans instead.
     if config.get(CONF_ENABLE_WATCHER, DEFAULT_ENABLE_WATCHER):
-        _LOGGER.info("Starting file system watcher")
-        await watcher.start_watching(base_folder, watched_folders)
+        if watched_folders:
+            _LOGGER.info("Starting file system watcher for folders: %s", watched_folders)
+            await watcher.start_watching(base_folder, watched_folders)
+        else:
+            _LOGGER.info(
+                "File system watcher disabled: no watched_folders specified. "
+                "For large collections, use scheduled scans instead of watching the entire base folder."
+            )
+    else:
+        _LOGGER.info("File system watcher disabled by configuration")
     
     # Setup scheduled scanning
     scan_schedule = config.get(CONF_SCAN_SCHEDULE, DEFAULT_SCAN_SCHEDULE)
@@ -1543,12 +1554,67 @@ def _register_services(hass: HomeAssistant):
         
         return {"status": "scan_started", "folder": folder_path}
     
+    async def handle_check_file_exists(call):
+        """Handle check_file_exists service call - lightweight filesystem check."""
+        entry_id = _get_entry_id_from_call(hass, call)
+        config = hass.data[DOMAIN][entry_id]["config"]
+        
+        # Get file_path from either file_path parameter or media_source_uri
+        file_path = call.data.get("file_path")
+        media_source_uri = call.data.get("media_source_uri")
+        
+        if not file_path and media_source_uri:
+            # Convert URI to path (includes security validation)
+            base_folder = config.get(CONF_BASE_FOLDER)
+            media_source_prefix = config.get(CONF_MEDIA_SOURCE_URI, "")
+            
+            try:
+                file_path = _convert_uri_to_path(media_source_uri, base_folder, media_source_prefix)
+            except ValueError as e:
+                _LOGGER.error("Failed to convert URI to path: %s", e)
+                return {"exists": False, "error": str(e)}
+        
+        if not file_path:
+            return {"exists": False, "error": "Either file_path or media_source_uri required"}
+        
+        # Security: Validate file_path is within base_folder (prevent directory traversal)
+        base_folder = config.get(CONF_BASE_FOLDER)
+        base_folder_abs = os.path.realpath(base_folder)
+        file_path_abs = os.path.realpath(file_path)
+        
+        # Check if path is within base_folder or is the base_folder itself
+        if file_path_abs != base_folder_abs and not file_path_abs.startswith(base_folder_abs + os.sep):
+            _LOGGER.warning(
+                "Security: Rejected file_path outside base_folder: '%s' (base: '%s')",
+                file_path_abs, base_folder_abs
+            )
+            return {"exists": False, "error": "Path outside configured base folder"}
+        
+        # Perform lightweight filesystem check
+        try:
+            exists = await hass.async_add_executor_job(os.path.exists, file_path)
+            return {"exists": exists, "path": file_path}
+        except Exception as e:
+            _LOGGER.error("Error checking file existence: %s", e)
+            return {"exists": False, "path": file_path, "error": str(e)}
+    
     async def handle_install_libmediainfo(call):
         """Install libmediainfo system library."""
         entry_id = _get_entry_id_from_call(hass, call)
         return await _install_libmediainfo_internal(hass, entry_id)
     
     # Register all services
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CHECK_FILE_EXISTS,
+        handle_check_file_exists,
+        schema=vol.Schema({
+            vol.Optional("file_path"): cv.string,
+            vol.Optional("media_source_uri"): cv.string,
+        }, extra=vol.ALLOW_EXTRA),
+        supports_response=SupportsResponse.ONLY,
+    )
+    
     hass.services.async_register(
         DOMAIN,
         SERVICE_INSTALL_LIBMEDIAINFO,

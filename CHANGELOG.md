@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.6] - 2025-12-25
+
+## Added
+
+- **File Existence Check Service**: New `check_file_exists` service for lightweight filesystem validation
+  - Accepts `file_path` or `media_source_uri` parameter
+  - Returns `{"exists": bool, "path": string}` without loading metadata
+  - Designed for Media Card v5.6.5+ to validate files before display
+  - Eliminates 404 broken image icons by checking filesystem first
+  - ~1ms response time vs ~100ms+ for image preload
+  - No network request, no image decode - just `os.path.exists()` check
+  - **Security**: Path traversal protection - validates all paths are within configured `base_folder`
+  - Rejects attempts to probe filesystem outside media collection scope
+
+- **File Watcher Event Throttling**: Prevents resource exhaustion during large sync operations
+  - Events now queued and processed in batches instead of immediately
+  - Batch delay: 2 seconds to collect events before processing
+  - Max batch size: 50 files processed at once
+  - Rate limiting: 0.5 second delay between batches to yield control to HA event loop
+  - Processes deletions first (fast), then new files, then modifications
+  - Background processor auto-stops when no pending events
+  - Prevents frontend freezing when database/filesystem are out of sync
+  - Reduces log spam (one log line per batch instead of per file)
+
+### Changed
+
+- **File Watcher Behavior**: Disabled when no watched_folders specified
+  - Watcher only starts if `watched_folders` list is non-empty
+  - Prevents monitoring entire base folder (resource-intensive for large collections)
+  - Clear log message explains watcher disabled and recommends scheduled scans
+  - For large collections (100K+ files), use watched_folders for specific subfolders or rely on scheduled scans
+  - Improves startup performance and reduces resource usage for users without watched folders configured
+
+### Fixed
+
+- **File Watcher Thread Safety**: Fixed race conditions in event queue access (GitHub review feedback)
+  - All queue modifications now use `call_soon_threadsafe` from watchdog thread
+  - Prevents data corruption when watchdog and asyncio threads access queues concurrently
+  - Event deduplication: removes path from other queues when adding to new queue
+  - Ensures same file path doesn't get processed multiple times from different queues
+
+- **File Watcher Robustness**: Improved batch processor error handling
+  - Added `finally` block to ensure `_is_processing` flag is always reset
+  - Consistent rate limiting: always yields to event loop after each iteration
+  - Prevents flag stuck at True if exception occurs outside inner try-except
+
+### Technical
+
+- Added event queues: `_pending_new`, `_pending_modified`, `_pending_deleted`
+- Implemented `_process_event_batches()` background task with configurable throttling
+- Enhanced `stop_watching()` to cancel processor task and clear pending events
+- Thread-safe queue access via `call_soon_threadsafe` with lambda functions
+- Cross-queue deduplication prevents redundant processing of same file
+- See `dev-docs/WATCHER_THROTTLING.md` for implementation details and performance benchmarks
+
 ## [1.5.5] - 2025-12-22
 
 ### Fixed
@@ -14,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed redundant debug logs for GPS field detection and coordinate extraction
   - Removed verbose debug logs for datetime field detection and parsing
   - Removed dimension/duration logging on every video parse
-  - Keeps UTF-8/Unicode protection via `Path.resolve()` without noisy warnings
+  - Keeps UTF-8/Unicode-safe path handling while removing noisy warnings
   - Resolves "Module is logging too frequently" warnings in Home Assistant logs
   - Prevents hundreds of debug messages during bulk video scanning
 
