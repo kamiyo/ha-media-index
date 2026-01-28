@@ -78,10 +78,12 @@ class MediaScanner:
             # For most users, this is acceptable as it's close to creation time in practice.
             created_time = None
             if hasattr(stat, 'st_birthtime'):
-                created_time = datetime.fromtimestamp(stat.st_birthtime).isoformat()
+                min_time = min(stat.st_birthtime, stat.st_mtime)
+                created_time = datetime.fromtimestamp(min_time).isoformat()
             else:
                 # Fall back to st_ctime (Windows: creation, Linux: inode change time)
-                created_time = datetime.fromtimestamp(stat.st_ctime).isoformat()
+                min_time = min(stat.st_ctime, stat.st_mtime)
+                created_time = datetime.fromtimestamp(min_time).isoformat()
             
             return {
                 "path": file_path,
